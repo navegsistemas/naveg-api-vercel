@@ -1,0 +1,26 @@
+{
+  "name": "naveg-api-vercel",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "A API da agência virtual da NAVEG: o que o totem precisa do Firestore, e nada mais.",
+  "scripts": {
+    "dev": "vercel dev",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify": "npm run typecheck && npm run test"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.0",
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "typescript": "^5.9.2",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.vercel/
+*.tsbuildinfo
+
+# A conta de serviço e os segredos. Um repositório que carrega credencial de produção convida um teste a
+# escrever nela — a mesma regra do `naveg-front`.
+.env
+.env.*
+!.env.example
+*.serviceaccount.json
+
+.DS_Store
+Thumbs.db
