@@ -15,12 +15,28 @@
  */
 import { Hono } from 'hono'
 
-import { catalogoParaJson, recortarPelaConcessao } from '@navegsistemas/domain'
+import { catalogoParaJson, recortarPelaConcessao, type CatalogoDoFluviapp } from '@navegsistemas/domain'
 
 import { ErroDaApi } from '../erros.js'
 import type { LeitorDoCatalogo } from '../portas.js'
 
 export const CACHE_DO_CATALOGO = 'public, s-maxage=60, stale-while-revalidate=600'
+
+/**
+ * Uma linha de log por leitura, **só com contagens** — nenhum id, nenhum nome. É o que explica um catálogo
+ * vazio sem abrir o banco: pool sem viagens, concessão sem embarcações, ou tudo cortado pelo recorte são três
+ * defeitos de cadastro diferentes, e a linha diz qual.
+ */
+export function resumoDaLeitura(pool: CatalogoDoFluviapp, recortado: CatalogoDoFluviapp): string {
+  const concessao = pool.atuacao
+  return [
+    `catálogo lido — pool: ${pool.viagens.length} viagens (${pool.viagens.filter((v) => v.ativo).length} ativas),`,
+    `${pool.rotas.length} rotas (${pool.rotas.filter((r) => r.ativo).length} ativas), ${pool.portos.length} portos,`,
+    `${pool.embarcacoes.length} embarcações;`,
+    `concessão: ${concessao?.embarcacaoIds.size ?? 0} embarcações e ${concessao?.portoIds.size ?? 0} portos;`,
+    `ofertável depois do recorte: ${recortado.viagens.length} viagens`,
+  ].join(' ')
+}
 
 export function rotaDoCatalogo(leitor: LeitorDoCatalogo): Hono {
   const rota = new Hono()
@@ -34,8 +50,11 @@ export function rotaDoCatalogo(leitor: LeitorDoCatalogo): Hono {
       throw new ErroDaApi(500, 'FALHA_INTERNA', 'Falha interna')
     }
 
+    const recortado = recortarPelaConcessao(catalogo)
+    console.info(resumoDaLeitura(catalogo, recortado))
+
     c.header('Cache-Control', CACHE_DO_CATALOGO)
-    return c.json(catalogoParaJson(recortarPelaConcessao(catalogo)))
+    return c.json(catalogoParaJson(recortado))
   })
 
   return rota

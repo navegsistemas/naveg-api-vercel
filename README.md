@@ -20,19 +20,23 @@ Os passos 1 e 2 são os passos **9 e 10** do
 
 ## Retomar daqui
 
-**Parei no fim do passo 1.** `npm run verify` deve dar **19 cenários verdes**. O `GET /catalogo` existe
+**Parei no fim do passo 1.** `npm run verify` deve dar **20 cenários verdes**. O `GET /catalogo` existe
 inteiro: a porta (`LeitorDoCatalogo`), o adaptador do Firestore (`src/firestore/catalogo-firestore.ts`), a
 conexão por conta de serviço (`src/firestore/conexao.ts`, que confere na partida que a chave é do projeto
 configurado) e a rota, que recorta e serializa com o `@navegsistemas/domain` 0.2.0.
 
-**O que ainda não foi visto funcionando: a leitura do `fluvi-app-dev` de verdade.** Os cenários usam portas
-falsas; a chave está só na Vercel, e a API ainda não foi publicada lá. Para ver:
+**No ar desde 2026-09-23**, em `https://naveg-api-vercel.vercel.app`: `/saude` e `/catalogo` respondem `200`,
+com CORS para `http://localhost:4321`, lendo o `fluvi-app-dev` com a conta de leitura. **Mas o catálogo vem
+vazio**: a concessão `AGENCIAMENTO` existe (sem ela seria `500`), e nada sobra depois do recorte. É cadastro,
+não código — e cada leitura deixa no log da Vercel uma linha só com contagens ("pool: N viagens…; concessão: N
+embarcações e N portos; ofertável depois do recorte: N viagens"), que diz qual dos três está faltando: viagens
+no pool, ids na concessão, ou viagens que a concessão cubra.
 
-1. importar o repositório na Vercel (se ainda não foi) — as variáveis já estão lá;
-2. `ORIGENS_PERMITIDAS` com a origem do front (`http://localhost:4321` basta para desenvolver);
-3. abrir `https://<a-api>.vercel.app/catalogo`. Um `500` com o log "catálogo sem concessão" quer dizer
-   `NAVEG_EMPRESA_ID` errado, ou a atuação `AGENCIAMENTO` ainda não cadastrada no fluviapp;
-4. no front, `PUBLIC_URL_DA_API=https://<a-api>.vercel.app` num `apps/agencia/.env`, e `npm run dev`.
+Duas lições da subida, para a próxima vez:
+
+- **variável nova só vale com deploy novo.** Salvar na Vercel não reinicia a função que está no ar;
+- **a chave JSON só se baixa uma vez**, na criação. O que a aba "Chaves" do console mostra é o *id* da chave, e
+  colá-lo na variável dá "o valor não é JSON".
 
 **O próximo é o passo 2, `POST /reservas`** — o passo 10 do plano. Antes dele, a decisão que o plano deixou
 aberta: publicar também o `@navegsistemas/dados`, ou mover o `enviarReserva` para o domínio.

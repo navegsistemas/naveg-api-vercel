@@ -88,6 +88,16 @@ describe('GET /catalogo', () => {
     }
   })
 
+  it('cada leitura deixa uma linha de log com contagens — e nenhum id, nenhum nome', async () => {
+    const log = vi.spyOn(console, 'info').mockImplementation(() => {})
+    await criarApp({ config: CONFIG, catalogo: lendo(POOL) }).request('/catalogo')
+    const linha = String(log.mock.calls[0]?.[0])
+    expect(linha).toContain('pool: 5 viagens (5 ativas), 3 rotas (2 ativas), 3 portos, 2 embarcações')
+    expect(linha).toContain('concessão: 2 embarcações e 2 portos')
+    expect(linha).toContain('ofertável depois do recorte: 1 viagens')
+    for (const dado of ['v-vende', 'e-ferry', 'p-bel', 'Belém', 'Ferry', 'empresa-naveg']) expect(linha).not.toContain(dado)
+  })
+
   it('a resposta boa vai com o cache de borda', async () => {
     const resposta = await criarApp({ config: CONFIG, catalogo: lendo(POOL) }).request('/catalogo')
     expect(resposta.headers.get('cache-control')).toBe(CACHE_DO_CATALOGO)
