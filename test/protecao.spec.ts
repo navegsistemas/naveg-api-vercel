@@ -11,7 +11,8 @@ import { InstanteLocal, montarReserva, DataCalendario, type CatalogoDoFluviapp, 
 import { criarApp } from '../src/app.js'
 import { leitorComCache } from '../src/catalogo-em-cache.js'
 import { lerConfig } from '../src/config.js'
-import { reservaNoFirestore, type FirestoreDeEscrita } from '../src/firestore/reserva-firestore.js'
+import { reservaNoFirestore, type Escrita, type LoteDeCriacao } from '../src/firestore/reserva-firestore.js'
+import { claimsDoServico, sessaoDoServico, UID_DO_SERVICO } from '../src/firestore/servico.js'
 import { ipDaRequisicao, resumirIp } from '../src/protecao/ip.js'
 import { limiteNoUpstash } from '../src/protecao/limite-upstash.js'
 import { desafioNaCloudflare, type Buscar } from '../src/protecao/turnstile.js'
@@ -52,29 +53,100 @@ function respondendo(...respostas: (() => Response)[]): { buscar: Buscar; pedido
 }
 const json = (corpo: unknown, status = 200) => () => new Response(JSON.stringify(corpo), { status })
 
-describe('a reserva no Firestore', () => {
-  it('create em reservas/{codigo}, com o documento do codec', async () => {
-    const criados: { caminho: string; dado: object }[] = []
-    const db: FirestoreDeEscrita = { doc: (caminho) => ({ create: async (dado) => void criados.push({ caminho, dado }) }) }
-    expect(await reservaNoFirestore(db).criar(reserva('NVG-7K3QP2'))).toEqual({ caso: 'GRAVADA' })
-    expect(criados[0]?.caminho).toBe('reservas/NVG-7K3QP2')
-    expect(criados[0]?.dado).toMatchObject({ status: 'RESERVADA', viagemId: 'v', data: '2026-10-14' })
-  })
-
-  it('ALREADY_EXISTS é código em uso — é o que faz gerar outro, e nunca sobrescrever', async () => {
-    const db: FirestoreDeEscrita = { doc: () => ({ create: () => Promise.reject(Object.assign(new Error('6 ALREADY_EXISTS'), { code: 6 })) }) }
-    expect(await reservaNoFirestore(db).criar(reserva('NVG-7K3QP2'))).toEqual({ caso: 'CODIGO_EM_USO' })
-  })
-
-  it('qualquer outro erro é falha, com motivo genérico — e o log sem o nome de ninguém', async () => {
-    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const db: FirestoreDeEscrita = {
-      doc: () => ({ create: () => Promise.reject(Object.assign(new Error('7 PERMISSION_DENIED: Maria'), { code: 7 })) }),
+describe('a reserva no Firestore, sob as Rules', () => {
+  function lote(resultado: () => Promise<'CRIADOS' | 'JA_EXISTE'>): LoteDeCriacao & { escritas: Escrita[] } {
+    const escritas: Escrita[] = []
+    return {
+      escritas,
+      criarJuntos: (novas) => {
+        escritas.push(...novas)
+        return resultado()
+      },
     }
-    const resultado = await reservaNoFirestore(db).criar(reserva('NVG-7K3QP2'))
+  }
+
+  it('grava a reserva e o reserva.criada juntos — a reserva primeiro, que é o que se confere livre', async () => {
+    const banco = lote(async () => 'CRIADOS')
+    expect(await reservaNoFirestore(banco, UID_DO_SERVICO).criar(reserva('NVG-7K3QP2'))).toEqual({ caso: 'GRAVADA' })
+
+    expect(banco.escritas.map((e) => e.caminho)).toEqual(['reservas/NVG-7K3QP2', 'eventos/reserva.criada:NVG-7K3QP2'])
+    expect(banco.escritas[0]?.dado).toMatchObject({ status: 'RESERVADA', viagemId: 'v', data: '2026-10-14' })
+    expect(banco.escritas[1]?.dado).toEqual({
+      tipo: 'reserva.criada',
+      entidade: { colecao: 'reservas', id: 'NVG-7K3QP2' },
+      agenciaId: '',
+      origem: 'api-agencia',
+      severidade: 'INFO',
+      porId: 'naveg-api',
+      em: '2026-10-13T08:00:00',
+      dados: { de: '', para: 'RESERVADA' },
+    })
+  })
+
+  it('o evento não leva o nome de quem reservou', async () => {
+    const banco = lote(async () => 'CRIADOS')
+    await reservaNoFirestore(banco, UID_DO_SERVICO).criar(reserva('NVG-7K3QP2'))
+    expect(JSON.stringify(banco.escritas[1]?.dado)).not.toContain('Maria')
+  })
+
+  it('código que já existe é código em uso — é o que faz gerar outro, e nunca sobrescrever', async () => {
+    const banco = lote(async () => 'JA_EXISTE')
+    expect(await reservaNoFirestore(banco, UID_DO_SERVICO).criar(reserva('NVG-7K3QP2'))).toEqual({ caso: 'CODIGO_EM_USO' })
+  })
+
+  it('qualquer erro é falha, com motivo genérico — e o log sem o nome de ninguém', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const banco = lote(() => Promise.reject(Object.assign(new Error('Missing or insufficient permissions: Maria'), { code: 'permission-denied' })))
+    const resultado = await reservaNoFirestore(banco, UID_DO_SERVICO).criar(reserva('NVG-7K3QP2'))
     expect(resultado).toEqual({ caso: 'FALHA', motivo: 'o banco recusou a gravação' })
     expect(String(log.mock.calls[0]?.[0])).toContain('NVG-7K3QP2')
+    expect(String(log.mock.calls[0]?.[0])).toContain('permission-denied')
     expect(String(log.mock.calls[0]?.[0])).not.toContain('Maria')
+  })
+})
+
+describe('a sessão do usuário de serviço', () => {
+  it('o token leva o uid do serviço, o papel e a agência — as claims que as Rules conferem', async () => {
+    const pedidos: unknown[] = []
+    const obter = sessaoDoServico('empresa-naveg', {
+      emitirToken: async (uid, claims) => {
+        pedidos.push({ uid, claims })
+        return 'token'
+      },
+      entrar: async () => ({}) as never,
+    })
+    await obter()
+    expect(pedidos).toEqual([{ uid: 'naveg-api', claims: { papel: 'SERVICO', agenciaId: 'empresa-naveg' } }])
+    expect(claimsDoServico('x')).toEqual({ papel: 'SERVICO', agenciaId: 'x' })
+  })
+
+  it('entra uma vez por instância, e reaproveita a sessão', async () => {
+    let entradas = 0
+    const obter = sessaoDoServico('empresa-naveg', {
+      emitirToken: async () => 'token',
+      entrar: async () => {
+        entradas += 1
+        return {} as never
+      },
+    })
+    await Promise.all([obter(), obter()])
+    await obter()
+    expect(entradas).toBe(1)
+  })
+
+  it('uma falha no login não fica guardada — a próxima gravação tenta de novo', async () => {
+    let tentativas = 0
+    const obter = sessaoDoServico('empresa-naveg', {
+      emitirToken: async () => 'token',
+      entrar: async () => {
+        tentativas += 1
+        if (tentativas === 1) throw new Error('rede')
+        return {} as never
+      },
+    })
+    await expect(obter()).rejects.toThrow('rede')
+    await expect(obter()).resolves.toBeDefined()
+    expect(tentativas).toBe(2)
   })
 })
 

@@ -12,3 +12,6 @@ dist/
 
 .DS_Store
 Thumbs.db
+
+# log do emulador (npm run test:emulador)
+firestore-debug.log

@@ -55,11 +55,18 @@ export function lerConta(qual: string, json: string, projetoEsperado: string): C
   return conta
 }
 
-/** O Firestore visto por uma conta. Chamar de novo com o mesmo nome devolve a mesma conexão. */
-export function firestoreDaConta(nome: 'leitura' | 'escrita', json: string, projeto: string): Firestore {
-  const existente = getApps().find((app) => app.name === nome)
-  const app: App =
-    existente ??
+/** O app do Admin SDK de uma conta. Chamar de novo com o mesmo nome devolve o mesmo app. */
+export function appDaConta(nome: 'leitura' | 'escrita', json: string, projeto: string): App {
+  return (
+    getApps().find((app) => app.name === nome) ??
     initializeApp({ credential: cert(lerConta(nome, json, projeto)), projectId: projeto }, nome)
-  return getFirestore(app)
+  )
+}
+
+/**
+ * O Firestore visto por uma conta — **só a de leitura**, desde que a escrita passou a ir pelo token de serviço
+ * (`servico.ts`). A de escrita não abre Firestore pelo Admin SDK: ela só assina o token.
+ */
+export function firestoreDaConta(nome: 'leitura', json: string, projeto: string): Firestore {
+  return getFirestore(appDaConta(nome, json, projeto))
 }

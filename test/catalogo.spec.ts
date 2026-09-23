@@ -24,6 +24,7 @@ const CONFIG: Config = {
   projetoFirebase: 'fluviapp-teste',
   contaDeLeitura: '{}',
   contaDeEscrita: '{}',
+  chaveWebDoFirebase: null,
   empresaId: 'empresa-naveg',
   origensPermitidas: ['https://agencia.naveg.com.br', 'http://localhost:4321'],
   protecaoDoEnvio: null,

@@ -9,11 +9,13 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify": "npm run typecheck && npm run test"
+    "verify": "npm run typecheck && npm run test",
+    "test:emulador": "node scripts/emulador.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",
-    "@navegsistemas/domain": "^0.4.0",
+    "@navegsistemas/domain": "^0.5.0",
+    "firebase": "^12.19.0",
     "firebase-admin": "^14.4.0",
     "hono": "^4.6.0"
   },
