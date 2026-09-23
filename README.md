@@ -26,11 +26,12 @@ conexão por conta de serviço (`src/firestore/conexao.ts`, que confere na parti
 configurado) e a rota, que recorta e serializa com o `@navegsistemas/domain` 0.2.0.
 
 **No ar desde 2026-09-23**, em `https://naveg-api-vercel.vercel.app`: `/saude` e `/catalogo` respondem `200`,
-com CORS para `http://localhost:4321`, lendo o `fluvi-app-dev` com a conta de leitura. **Mas o catálogo vem
-vazio**: a concessão `AGENCIAMENTO` existe (sem ela seria `500`), e nada sobra depois do recorte. É cadastro,
-não código — e cada leitura deixa no log da Vercel uma linha só com contagens ("pool: N viagens…; concessão: N
-embarcações e N portos; ofertável depois do recorte: N viagens"), que diz qual dos três está faltando: viagens
-no pool, ids na concessão, ou viagens que a concessão cubra.
+com CORS para `http://localhost:4321`, lendo o `fluvi-app-dev` com a conta de leitura. **Visto de ponta a ponta** no mesmo dia: o
+`/catalogo` devolve as duas viagens do F/B REGIONAL (Porto Brilhante · Belém/PA → Porto do Grego · Santana/AP),
+recortadas pela concessão, e o `catalogoHttp` do front as transforma nas saídas que o totem oferta. Cada
+leitura deixa no log da Vercel uma linha só com contagens ("pool: N viagens…; concessão: N embarcações e N
+portos; ofertável depois do recorte: N viagens") — se um dia o catálogo vier vazio, ela diz se falta viagem no
+pool, id na concessão, ou viagem que a concessão cubra.
 
 Duas lições da subida, para a próxima vez:
 
