@@ -20,7 +20,22 @@ Os passos 1 e 2 são os passos **9 e 10** do
 
 ## Retomar daqui
 
-**Parei no fim do código do passo 2.** `npm run verify` deve dar **51 cenários verdes**. O `POST /reservas`
+**Desde 2026-09-23 a API grava sob as Rules do fluviapp** (a P3 do ADR-0010 do `fluviapp-kmp`, desenhada no
+ADR-0013 de lá). A conta de escrita não grava mais: ela **assina um token customizado** para o usuário de serviço
+`naveg-api` (*claims* `papel: SERVICO` e a agência), e a gravação vai pelo SDK cliente, numa transação que
+confere o código livre e grava a reserva **e o evento `reserva.criada`** juntos (`src/firestore/servico.ts` e
+`reserva-firestore.ts`). `npm run verify` dá **56 cenários verdes** e um pulado — o de ponta a ponta, que roda
+com `npm run test:emulador`.
+
+**Para ligar esta versão**, nesta ordem:
+
+1. o `fluviapp-kmp` com as Rules novas publicadas no projeto (o merge do PR de lá faz isso em homologação);
+2. o `@navegsistemas/domain` **0.5.0** publicado, e `npm install` aqui para o `package-lock.json` o registrar;
+3. na Vercel, `FIREBASE_WEB_API_KEY` = a `apiKey` do app Web do Firebase; redeploy;
+4. **depois de ver uma reserva gravada**, tirar o papel *Cloud Datastore User* da `naveg-api-escrita` no IAM.
+   Enquanto ele existir, uma chave vazada ainda grava por cima das Rules — é o passo que fecha a P3.
+
+**O passo 2, como ficou antes disso.** O `POST /reservas`
 existe inteiro — a rota (`src/rotas/reservas.ts`), a reserva no Firestore com a conta de escrita
 (`src/firestore/reserva-firestore.ts`), o desafio na Cloudflare e o limite no Upstash (`src/protecao/`) — e
 passou pela revisão de segurança que o plano exige antes do deploy. **Ele está no ar desligado**: sem as três
@@ -46,8 +61,9 @@ Cloudflare e restrito ao domínio da agência.
   o Upstash. A Cloudflare passa a tratar dado pessoal em nome da NAVEG — a política de privacidade tem de dizer
   isso.
 
-**Falta do aceite do plano:** a escrita ponta a ponta contra o **emulador** do Firestore, com as Rules do
-fluviapp carregadas. Os cenários daqui usam portas falsas.
+**O aceite do plano está completo:** a escrita ponta a ponta contra o **emulador** do Firestore e do Auth, com as
+Rules do fluviapp-kmp carregadas, é o `test/emulador.spec.ts` (`npm run test:emulador`; lê as Rules do
+checkout em `FLUVIAPP_KMP`). Ele prova também o que as Rules recusam: a reserva de outra agência não grava.
 
 **No ar desde 2026-09-23**, em `https://naveg-api-vercel.vercel.app`: `/saude` e `/catalogo` respondem `200`,
 com CORS para `http://localhost:4321`, lendo o `fluvi-app-dev` com a conta de leitura. **Visto de ponta a ponta** no mesmo dia: o
@@ -222,14 +238,16 @@ o mesmo codec que o aplicativo usa.
 
 **Duas contas de serviço, e não uma.** O IAM do Firestore não distingue coleção: uma conta com papel de escrita
 pode escrever em qualquer lugar do banco — inclusive em `passagens`. Por isso a rota do catálogo usa uma conta
-com **`Cloud Datastore Viewer`** e a de reservas, uma com `Cloud Datastore User`. Não é defesa contra invasor
-com acesso ao ambiente; é defesa contra **nós mesmos** — um `set` escrito no lugar errado falha em vez de
-gravar.
+com **`Cloud Datastore Viewer`**, e a de reservas **não tem papel no Firestore**: ela só assina o token do
+usuário de serviço, e quem decide o que ele grava são as Rules do fluviapp. Um `set` escrito no lugar errado
+falha em vez de gravar — e agora isso vale também para uma chave vazada.
 
 O resto:
 
-- **O Admin SDK passa por cima das Firestore Rules.** Isso é o que faz `reservas` poder ficar fechada ao
-  público, e é também o que torna o código desta API a última linha de defesa. Toda escrita passa pelo domínio.
+- **A escrita passa pelas Firestore Rules.** A API grava como o usuário de serviço `naveg-api`, e as Rules
+  cercam o que ele cria: `RESERVADA`, do totem, da agência **do token**, com as chaves do contrato e o evento no
+  mesmo lote. O domínio continua decidindo a coerência do pedido; as Rules seguram o que não pode passar mesmo
+  que o código daqui erre. A leitura do catálogo continua pelo Admin SDK, com a conta que só lê.
 - **Turnstile** no `POST`: sem App Check (que só existe para clientes Firebase), é o que responde *"tem gente
   do outro lado?"*.
 - **Limite por IP** em Upstash Redis. Em memória não serve: a Vercel invoca funções, e cada instância teria o
@@ -242,14 +260,16 @@ O resto:
 ## Configuração
 
 Copie `.env.example` para `.env`. As cinco primeiras são obrigatórias, e a ausência de qualquer uma derruba a
-partida com a lista inteira do que falta — não uma por vez. As três da proteção são **opcionais e juntas**:
-faltando qualquer uma, o `POST /reservas` responde `503` e a partida avisa qual falta.
+partida com a lista inteira do que falta — não uma por vez. As três da proteção são **opcionais e juntas**, e a
+chave Web também é opcional: faltando qualquer uma delas, o `POST /reservas` responde `503` e a partida avisa
+qual falta.
 
 | variável | o que é |
 |---|---|
 | `FIREBASE_PROJECT_ID` | o projeto Firebase do fluviapp |
 | `FIREBASE_CONTA_DE_LEITURA` | JSON da conta de serviço com `Cloud Datastore Viewer` |
-| `FIREBASE_CONTA_DE_ESCRITA` | JSON da conta de serviço com `Cloud Datastore User` |
+| `FIREBASE_CONTA_DE_ESCRITA` | JSON da conta de serviço que **assina o token** do usuário de serviço — sem papel no Firestore |
+| `FIREBASE_WEB_API_KEY` | a `apiKey` do app Web do Firebase — o SDK cliente entra com ela. Não é segredo, mas é por ambiente |
 | `NAVEG_EMPRESA_ID` | a empresa NAVEG no fluviapp, para achar `empresas/{id}/atuacoes/AGENCIAMENTO` |
 | `ORIGENS_PERMITIDAS` | as origens do front, separadas por vírgula |
 | `TURNSTILE_SECRET` | a chave **secreta** do widget do Turnstile (em dev, a de teste: `1x0000000000000000000000000000000AA`) |
@@ -264,7 +284,7 @@ novas — e as chaves de dev nunca entram no ambiente de produção.
 | conta | papel | quem usa | variável |
 |---|---|---|---|
 | `naveg-api-leitura@fluvi-app-dev.iam.gserviceaccount.com` | `roles/datastore.viewer` | `GET /catalogo`, **e** a conferência do catálogo dentro do `POST /reservas` | `FIREBASE_CONTA_DE_LEITURA` |
-| `naveg-api-escrita@fluvi-app-dev.iam.gserviceaccount.com` | `roles/datastore.user` | **só** o `create` em `reservas` | `FIREBASE_CONTA_DE_ESCRITA` |
+| `naveg-api-escrita@fluvi-app-dev.iam.gserviceaccount.com` | **nenhum** — só assina o token de serviço (hoje ainda com `roles/datastore.user`, a remover: ver "Retomar daqui") | a gravação de reservas, **sob as Rules** | `FIREBASE_CONTA_DE_ESCRITA` |
 
 O `POST` também lê o catálogo, e lê **com a conta de leitura**, pelo mesmo adaptador e o mesmo cache do `GET`.
 A de escrita aparece numa linha do código só — como o IAM não separa coleção, é o menor lugar possível para
@@ -276,7 +296,7 @@ um engano gravar em `passagens`.
 1. `console.cloud.google.com`, projeto `fluvi-app-dev` → **IAM e administrador → Contas de serviço → Criar**;
 2. ID `naveg-api-leitura`; em "Conceder acesso", **só** o papel *Cloud Datastore Viewer*;
 3. na conta criada, **Chaves → Adicionar chave → JSON**;
-4. repetir com `naveg-api-escrita` e **só** o papel *Cloud Datastore User*.
+4. repetir com `naveg-api-escrita`, **sem papel nenhum** — ela só assina o token de serviço, e isso não pede IAM.
 
 Ou, com o `gcloud`:
 
@@ -285,7 +305,8 @@ P=fluvi-app-dev
 gcloud iam service-accounts create naveg-api-leitura --project=$P --display-name="API da agência: leitura do catálogo"
 gcloud iam service-accounts create naveg-api-escrita --project=$P --display-name="API da agência: gravação de reservas"
 gcloud projects add-iam-policy-binding $P --member="serviceAccount:naveg-api-leitura@$P.iam.gserviceaccount.com" --role=roles/datastore.viewer
-gcloud projects add-iam-policy-binding $P --member="serviceAccount:naveg-api-escrita@$P.iam.gserviceaccount.com" --role=roles/datastore.user
+# a de escrita NÃO ganha papel no Firestore: ela só assina o token de serviço (a P3). Para tirar o que já tem:
+# gcloud projects remove-iam-policy-binding $P --member="serviceAccount:naveg-api-escrita@$P.iam.gserviceaccount.com" --role=roles/datastore.user
 gcloud iam service-accounts keys create leitura.serviceaccount.json --iam-account=naveg-api-leitura@$P.iam.gserviceaccount.com
 gcloud iam service-accounts keys create escrita.serviceaccount.json --iam-account=naveg-api-escrita@$P.iam.gserviceaccount.com
 ```

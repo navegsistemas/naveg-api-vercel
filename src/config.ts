@@ -13,8 +13,16 @@ export interface Config {
   readonly projetoFirebase: string
   /** JSON da conta de serviço que **lê** o catálogo. */
   readonly contaDeLeitura: string
-  /** JSON da conta de serviço que **grava** reservas. Separada da de leitura — ver o README. */
+  /**
+   * JSON da conta de serviço que **assina o token** com que a API grava reservas sob as Rules do fluviapp.
+   * Separada da de leitura — ver o README.
+   */
   readonly contaDeEscrita: string
+  /**
+   * A chave Web do projeto (`apiKey` do app Web do Firebase) — o SDK cliente precisa dela para entrar com o
+   * token de serviço. **Opcional**: sem ela, o envio responde `503`, como sem a proteção, e o catálogo segue.
+   */
+  readonly chaveWebDoFirebase: string | null
   readonly empresaId: string
   readonly origensPermitidas: readonly string[]
   /**
@@ -66,7 +74,18 @@ export function lerConfig(ambiente: Readonly<Record<string, string | undefined>>
       .map((origem) => origem.trim().replace(/\/$/, ''))
       .filter((origem) => origem.length > 0),
     protecaoDoEnvio: lerProtecao(ambiente),
+    chaveWebDoFirebase: lerChaveWeb(ambiente),
   }
+}
+
+/** A chave Web, ou `null` com o aviso — a mesma régua da proteção: sem ela não há `POST`, e a partida diz. */
+function lerChaveWeb(ambiente: Readonly<Record<string, string | undefined>>): string | null {
+  const chave = (ambiente['FIREBASE_WEB_API_KEY'] ?? '').trim()
+  if (chave.length === 0) {
+    console.warn('envio de reservas desligado: falta FIREBASE_WEB_API_KEY')
+    return null
+  }
+  return chave
 }
 
 const PROTECAO = ['TURNSTILE_SECRET', 'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN'] as const

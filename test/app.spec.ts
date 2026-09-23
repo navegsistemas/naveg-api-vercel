@@ -5,7 +5,7 @@
  * O app é montado com uma configuração de teste: nenhum cenário depende de variável de ambiente, e é por isso
  * que eles rodam iguais na máquina de qualquer um e no CI.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { criarApp } from '../src/app.js'
 import { ConfiguracaoIncompleta, lerConfig, type Config } from '../src/config.js'
@@ -15,6 +15,7 @@ const CONFIG: Config = {
   projetoFirebase: 'fluviapp-teste',
   contaDeLeitura: '{}',
   contaDeEscrita: '{}',
+  chaveWebDoFirebase: null,
   empresaId: 'empresa-naveg',
   origensPermitidas: ['https://agencia.naveg.com.br', 'http://localhost:4321'],
   protecaoDoEnvio: null,
@@ -36,8 +37,16 @@ describe('a configuração', () => {
       contaDeEscrita: '{"a":2}',
       empresaId: 'empresa-naveg',
       origensPermitidas: ['https://agencia.naveg.com.br', 'http://localhost:4321'],
+      chaveWebDoFirebase: null,
       protecaoDoEnvio: null,
     })
+  })
+
+  it('a chave Web é opcional, e lida aparada — sem ela o envio fica desligado, e o catálogo não', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(lerConfig({ ...AMBIENTE_COMPLETO, FIREBASE_WEB_API_KEY: ' AIza-chave ' }).chaveWebDoFirebase).toBe('AIza-chave')
+    expect(lerConfig({ ...AMBIENTE_COMPLETO, FIREBASE_WEB_API_KEY: '  ' }).chaveWebDoFirebase).toBeNull()
+    vi.restoreAllMocks()
   })
 
   it('falha na partida dizendo **todas** as que faltam, e não só a primeira', () => {
