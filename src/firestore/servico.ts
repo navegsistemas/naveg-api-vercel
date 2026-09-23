@@ -24,9 +24,8 @@
 import { getApps as appsDoCliente, initializeApp as iniciarCliente } from 'firebase/app'
 import { getAuth as authDoCliente, signInWithCustomToken } from 'firebase/auth'
 import { getFirestore as firestoreDoCliente, type Firestore } from 'firebase/firestore'
-import { getAuth as authDoAdmin } from 'firebase-admin/auth'
-
-import { appDaConta } from './conexao.js'
+import { lerConta } from './conexao.js'
+import { assinarTokenCustomizado } from './token-customizado.js'
 
 /** O uid do serviço. Não tem `users/{uid}` no fluviapp — o serviço não é pessoa, e as Rules não o tratam como uma. */
 export const UID_DO_SERVICO = 'naveg-api'
@@ -74,11 +73,14 @@ export interface OpcoesDoServico {
   readonly agenciaId: string
 }
 
-/** A sessão com os SDKs de verdade: o Admin assina, o cliente entra. */
+/**
+ * A sessão de verdade: a chave da conta de escrita assina o token (`token-customizado.ts`, sem o
+ * `firebase-admin/auth` — ver lá por quê), e o SDK cliente entra com ele.
+ */
 export function sessaoDoServicoNoFirebase(opcoes: OpcoesDoServico): () => Promise<Firestore> {
   return sessaoDoServico(opcoes.agenciaId, {
-    emitirToken: (uid, claims) =>
-      authDoAdmin(appDaConta('escrita', opcoes.contaDeEscrita, opcoes.projeto)).createCustomToken(uid, { ...claims }),
+    emitirToken: async (uid, claims) =>
+      assinarTokenCustomizado(lerConta('escrita', opcoes.contaDeEscrita, opcoes.projeto), uid, { ...claims }),
     entrar: async (token) => {
       const app =
         appsDoCliente().find((existente) => existente.name === 'servico') ??
