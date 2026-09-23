@@ -1,5 +1,5 @@
 /**
- * **O app** — CORS, erro e as rotas. Nada de regra de negócio: ela mora no `@naveg/domain`, e as rotas a
+ * **O app** — CORS, erro e as rotas. Nada de regra de negócio: ela mora no `@navegsistemas/domain`, e as rotas a
  * chamam.
  *
  * O app é **montado com a configuração**, e não a lê de dentro. É o que faz os cenários rodarem sem variável

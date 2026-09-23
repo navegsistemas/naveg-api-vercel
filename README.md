@@ -26,14 +26,14 @@ rede e sem Firestore), o CORS por lista de origens, a forma única do erro e o `
 
 **O próximo é o passo 1, `GET /catalogo`** — e ele está bloqueado por coisas que não são código:
 
-1. **os repositórios na org `naveg`.** O GitHub Packages só aceita `@naveg/…` de repositório da org de mesmo
-   nome; hoje o `naveg-front` está em `github.com/kurtmatheus/naveg-front`;
-2. **o `@naveg/domain` publicado** (o front faz, pela tag `domain-v0.1.0`), e o `NPM_TOKEN` aqui e na Vercel;
+1. ~~os repositórios na org~~ **feito.** Os dois estão na `navegsistemas`, e o escopo do pacote passou a ser
+   `@navegsistemas` por causa disso — o GitHub Packages exige que o escopo seja o nome da org;
+2. **o `@navegsistemas/domain` publicado** (o front faz, pela tag `domain-v0.1.0`), e o `NPM_TOKEN` aqui e na Vercel;
 3. **as duas contas de serviço** e o `NAVEG_EMPRESA_ID` — ver "Configuração".
 
 Enquanto isso não vem, o front não fica parado: o totem dele roda contra o catálogo de demonstração.
 
-**Quando destravar**, a ordem é: `npm install @naveg/domain`, o adaptador de leitura do Firestore com porta
+**Quando destravar**, a ordem é: `npm install @navegsistemas/domain`, o adaptador de leitura do Firestore com porta
 falsa nos cenários, a rota, e só então apontar para o Firestore de verdade (o emulador do repositório do
 fluviapp serve para isso).
 
@@ -88,14 +88,14 @@ devolve o catálogo **já recortado** pela concessão, porque é isso que o tote
 - **uma API pública.** Só as origens do front podem chamá-la, e o contrato pode mudar junto com a tela;
 - **um proxy do Firestore.** O que ela não precisa expor, ela não expõe — `passagens`, `clientes`, `veiculos`,
   `users` e `funcionarios` nunca saem daqui;
-- **dona de regra de negócio.** As regras são do `@naveg/domain`, o mesmo pacote que o totem usa;
+- **dona de regra de negócio.** As regras são do `@navegsistemas/domain`, o mesmo pacote que o totem usa;
 - **um lugar de autenticação.** A Fase 1 não tem login: a reserva é anônima por decisão, e quem identifica
   quem viaja é o atendimento pessoal. Autenticação é da Fase 2.
 
 ## O domínio não mora aqui
 
 A validação da reserva é a **mesma** dos dois lados: `montarReserva`, `paraDocumento`, `travessiasOfertadas` e
-os decodificadores do catálogo vêm de `@naveg/domain`, que vive no monorepo do `naveg-front`. No totem, para
+os decodificadores do catálogo vêm de `@navegsistemas/domain`, que vive no monorepo do `naveg-front`. No totem, para
 responder na hora; aqui, para **decidir**.
 
 Duplicar qualquer parte disso aqui seria refazer o erro que o projeto passou o dia consertando: duas cópias da
@@ -103,12 +103,12 @@ mesma regra divergem, e a divergência aparece como dado ilegível em produção
 
 ### De onde ele vem: GitHub Packages
 
-O `@naveg/domain` é publicado pelo monorepo do front no registro do GitHub, e instalado aqui como dependência
+O `@navegsistemas/domain` é publicado pelo monorepo do front no registro do GitHub, e instalado aqui como dependência
 normal — com **versão explícita**, que é o que torna o build da Vercel reproduzível. O [`.npmrc`](.npmrc) deste
-repositório aponta o escopo `@naveg` para o registro e lê o token do ambiente:
+repositório aponta o escopo `@navegsistemas` para o registro e lê o token do ambiente:
 
 ```
-@naveg:registry=https://npm.pkg.github.com
+@navegsistemas:registry=https://npm.pkg.github.com
 //npm.pkg.github.com/:_authToken=${NPM_TOKEN}
 ```
 
@@ -116,7 +116,7 @@ repositório aponta o escopo `@naveg` para o registro e lê o token do ambiente:
 
 ```bash
 export NPM_TOKEN=ghp_…        # PAT clássico com read:packages
-npm install @naveg/domain@^0.1.0
+npm install @navegsistemas/domain@^0.1.0
 ```
 
 **Na Vercel**, o mesmo token vai como variável de ambiente `NPM_TOKEN` do projeto (Settings → Environment
@@ -124,12 +124,12 @@ Variables). Sem ela, o build falha na instalação — e falha cedo, que é o ce
 domínio publicaria uma API sem regra nenhuma.
 
 **Para subir uma versão nova do domínio**, é no outro repositório:
-`npm version --workspace @naveg/domain patch`, tag `domain-v0.1.1`, push. O workflow de lá publica. Aqui,
-`npm update @naveg/domain` quando quiser pegar.
+`npm version --workspace @navegsistemas/domain patch`, tag `domain-v0.1.1`, push. O workflow de lá publica. Aqui,
+`npm update @navegsistemas/domain` quando quiser pegar.
 
-> **O escopo precisa ser o dono do repositório.** O GitHub Packages só aceita `@naveg/…` se o `naveg-front`
-> pertencer à organização `naveg`. Enquanto ele estiver em `github.com/kurtmatheus/naveg-front`, a publicação
-> é recusada.
+> **O escopo precisa ser o dono do repositório.** O GitHub Packages aceita `@navegsistemas/…` porque o
+> `naveg-front` pertence à organização `navegsistemas`. É essa regra que explica o nome do escopo, e não uma
+> preferência de estilo.
 
 ## As rotas
 
@@ -212,7 +212,7 @@ lista inteira do que falta — não uma por vez.
 ## Rodando
 
 ```bash
-export NPM_TOKEN=ghp_…   # para o @naveg/domain; ver acima
+export NPM_TOKEN=ghp_…   # para o @navegsistemas/domain; ver acima
 npm install
 npm run dev        # vercel dev, com o .env local
 npm run verify     # typecheck + cenários
@@ -256,4 +256,4 @@ Estes ADRs são de lá, e valem aqui:
   — em especial a **segunda emenda**, que é a que criou este projeto.
 
 Decisão daqui, quando houver, vira ADR **aqui** — e a primeira candidata é a de como consumir o
-`@naveg/domain`.
+`@navegsistemas/domain`.
