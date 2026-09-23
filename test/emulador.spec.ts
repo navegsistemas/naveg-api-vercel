@@ -1,14 +1,15 @@
 /**
  * **A gravação de ponta a ponta** — o SDK de verdade, o emulador de verdade, e as Rules do fluviapp-kmp.
  *
- * Os outros cenários usam portas falsas; este é o que prova que a peça inteira encaixa: o Admin SDK emite o
- * token com as *claims* do serviço, o SDK cliente entra com ele, e a transação grava reserva e evento **sob as
+ * Os outros cenários usam portas falsas; este é o que prova que a peça inteira encaixa: o assinador daqui emite
+ * o token com as *claims* do serviço, o SDK cliente entra com ele, e a transação grava reserva e evento **sob as
  * Rules** — que aceitam o que é da agência do token e recusam o resto.
  *
  * Roda com `npm run test:emulador` (ver `scripts/emulador.mjs`). Sem o emulador no ambiente, aparece pulado.
  */
 import { initializeApp as iniciarAdmin } from 'firebase-admin/app'
-import { getAuth as authDoAdmin } from 'firebase-admin/auth'
+import { generateKeyPairSync } from 'node:crypto'
+
 import { getFirestore as firestoreDoAdmin } from 'firebase-admin/firestore'
 import { initializeApp as iniciarCliente } from 'firebase/app'
 import { connectAuthEmulator, getAuth, signInWithCustomToken } from 'firebase/auth'
@@ -19,6 +20,7 @@ import { DataCalendario, InstanteLocal, montarReserva, type Reserva } from '@nav
 
 import { loteNoFirestore, reservaNoFirestore } from '../src/firestore/reserva-firestore.js'
 import { sessaoDoServico, UID_DO_SERVICO } from '../src/firestore/servico.js'
+import { assinarTokenCustomizado } from '../src/firestore/token-customizado.js'
 
 const FIRESTORE = process.env['FIRESTORE_EMULATOR_HOST']
 const AUTH = process.env['FIREBASE_AUTH_EMULATOR_HOST']
@@ -49,8 +51,15 @@ describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PU
     const [host, porta] = (FIRESTORE as string).split(':')
     connectFirestoreEmulator(db, host as string, Number(porta))
 
+    /* O assinador de produção, com uma chave qualquer: o emulador do Auth não confere a assinatura. */
+    const { privateKey } = generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+    })
+    const conta = { clientEmail: `naveg-api-escrita@${PROJETO}.iam.gserviceaccount.com`, privateKey }
     const obter = sessaoDoServico(AGENCIA, {
-      emitirToken: (uid, claims) => authDoAdmin(admin).createCustomToken(uid, { ...claims }),
+      emitirToken: async (uid, claims) => assinarTokenCustomizado(conta, uid, { ...claims }),
       entrar: async (token) => {
         await signInWithCustomToken(getAuth(cliente), token)
         return db
