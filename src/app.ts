@@ -17,13 +17,16 @@ import { cors } from 'hono/cors'
 
 import type { Config } from './config.js'
 import { ErroDaApi, type CorpoDeErro } from './erros.js'
+import type { LeitorDoCatalogo } from './portas.js'
+import { rotaDoCatalogo } from './rotas/catalogo.js'
 import { rotaDeSaude } from './rotas/saude.js'
 
 export interface Dependencias {
   readonly config: Config
+  readonly catalogo: LeitorDoCatalogo
 }
 
-export function criarApp({ config }: Dependencias): Hono {
+export function criarApp({ config, catalogo }: Dependencias): Hono {
   const app = new Hono()
 
   app.use(
@@ -37,6 +40,7 @@ export function criarApp({ config }: Dependencias): Hono {
   )
 
   app.route('/saude', rotaDeSaude())
+  app.route('/catalogo', rotaDoCatalogo(catalogo))
 
   app.notFound((c) => {
     const corpo: CorpoDeErro = { erro: 'CORPO_INVALIDO', mensagem: 'Rota inexistente' }

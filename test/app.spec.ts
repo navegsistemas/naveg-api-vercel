@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 
 import { criarApp } from '../src/app.js'
 import { ConfiguracaoIncompleta, lerConfig, type Config } from '../src/config.js'
+import type { LeitorDoCatalogo } from '../src/portas.js'
 
 const CONFIG: Config = {
   projetoFirebase: 'fluviapp-teste',
@@ -53,8 +54,13 @@ describe('a configuração', () => {
   })
 })
 
+/** O esqueleto não lê catálogo; um leitor que falha denuncia se alguma rota daqui o chamar sem querer. */
+const SEM_CATALOGO: LeitorDoCatalogo = {
+  ler: () => Promise.reject(new Error('o esqueleto não devia ler o catálogo')),
+}
+
 describe('o app', () => {
-  const app = criarApp({ config: CONFIG })
+  const app = criarApp({ config: CONFIG, catalogo: SEM_CATALOGO })
 
   it('responde a saúde sem falar com o Firestore', async () => {
     const resposta = await app.request('/saude')

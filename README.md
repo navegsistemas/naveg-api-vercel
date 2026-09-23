@@ -12,7 +12,7 @@ Não é uma API pública, não é um serviço de plataforma e não é a porta de
 | passo | o que é | estado |
 |---|---|---|
 | 0 | Esqueleto: Hono na Vercel, configuração que falha na partida, CORS, forma do erro, `GET /saude` | ✅ |
-| 1 | `GET /catalogo` — o catálogo do fluviapp, recortado pela concessão da NAVEG | — |
+| 1 | `GET /catalogo` — o catálogo do fluviapp, recortado pela concessão da NAVEG | ✅ |
 | 2 | `POST /reservas` — a reserva gravada com conta de serviço, com Turnstile e limite por IP | — |
 
 Os passos 1 e 2 são os passos **9 e 10** do
@@ -20,24 +20,27 @@ Os passos 1 e 2 são os passos **9 e 10** do
 
 ## Retomar daqui
 
-**Parei no fim do passo 0.** `npm run verify` deve dar **6 cenários verdes**. O que existe é o esqueleto:
-o app do Hono montado com a configuração e as portas (por isso os cenários rodam sem variável de ambiente, sem
-rede e sem Firestore), o CORS por lista de origens, a forma única do erro e o `GET /saude`.
+**Parei no fim do passo 1.** `npm run verify` deve dar **19 cenários verdes**. O `GET /catalogo` existe
+inteiro: a porta (`LeitorDoCatalogo`), o adaptador do Firestore (`src/firestore/catalogo-firestore.ts`), a
+conexão por conta de serviço (`src/firestore/conexao.ts`, que confere na partida que a chave é do projeto
+configurado) e a rota, que recorta e serializa com o `@navegsistemas/domain` 0.2.0.
 
-**O próximo é o passo 1, `GET /catalogo`, e ele está destravado** — o que o bloqueava não era código, e caiu
-todo em 2026-09-23:
+**O que ainda não foi visto funcionando: a leitura do `fluvi-app-dev` de verdade.** Os cenários usam portas
+falsas; a chave está só na Vercel, e a API ainda não foi publicada lá. Para ver:
 
-1. ~~os repositórios na org~~ **feito.** Os dois estão na `navegsistemas`, e o escopo do pacote passou a ser
-   `@navegsistemas` por causa disso — o GitHub Packages exige que o escopo seja o nome da org;
-2. ~~o `@navegsistemas/domain` publicado e o `NPM_TOKEN`~~ **feito** (2026-09-23). O 0.1.0 está no registro e o
-   token lê. Lembrete: o `.npmrc` daqui lê `${NPM_TOKEN}` **do ambiente** — com o token só no `~/.npmrc`, o
-   `npm install` dá 401;
-3. ~~as duas contas de serviço e o `NAVEG_EMPRESA_ID`~~ **feito.** `naveg-api-leitura` e `naveg-api-escrita` no
-   `fluvi-app-dev`, com as chaves nas variáveis da Vercel — ver "As contas de serviço".
+1. importar o repositório na Vercel (se ainda não foi) — as variáveis já estão lá;
+2. `ORIGENS_PERMITIDAS` com a origem do front (`http://localhost:4321` basta para desenvolver);
+3. abrir `https://<a-api>.vercel.app/catalogo`. Um `500` com o log "catálogo sem concessão" quer dizer
+   `NAVEG_EMPRESA_ID` errado, ou a atuação `AGENCIAMENTO` ainda não cadastrada no fluviapp;
+4. no front, `PUBLIC_URL_DA_API=https://<a-api>.vercel.app` num `apps/agencia/.env`, e `npm run dev`.
 
-**Quando destravar**, a ordem é: `npm install @navegsistemas/domain`, o adaptador de leitura do Firestore com porta
-falsa nos cenários, a rota, e só então apontar para o Firestore de verdade (o emulador do repositório do
-fluviapp serve para isso).
+**O próximo é o passo 2, `POST /reservas`** — o passo 10 do plano. Antes dele, a decisão que o plano deixou
+aberta: publicar também o `@navegsistemas/dados`, ou mover o `enviarReserva` para o domínio.
+
+**Dependência com aviso conhecido:** o `npm audit` aponta `uuid` < 11.1.1 (moderado), que o
+`@google-cloud/storage` puxa por dentro do `firebase-admin`. A API não usa o Storage, e o defeito é na
+geração de UUID v3/v5/v6 com buffer. O `npm audit fix` não resolve sem trocar a versão do `firebase-admin`;
+fica registrado para a próxima atualização dele.
 
 ## Onde ela se encaixa
 
@@ -118,7 +121,7 @@ repositório aponta o escopo `@navegsistemas` para o registro e lê o token do a
 
 ```bash
 export NPM_TOKEN=ghp_…        # PAT clássico com read:packages
-npm install @navegsistemas/domain@^0.1.0
+npm install @navegsistemas/domain@^0.2.0
 ```
 
 **Na Vercel**, o mesmo token vai como variável de ambiente `NPM_TOKEN` do projeto (Settings → Environment
@@ -153,7 +156,13 @@ os portos, localidades e embarcações que elas citam. O pool das outras empresa
   minuto, sobre o catálogo em mãos (`travessiasOfertadas`). Por isso o cache de borda de 60 s não faz saída
   vencida aparecer.
 - `Cache-Control: public, s-maxage=60, stale-while-revalidate=600`. O catálogo muda quando alguém cadastra uma
-  viagem, não a cada pedido.
+  viagem, não a cada pedido. **Só a resposta boa leva o cabeçalho** — erro não fica em cache — e ela sai com
+  `Vary: Origin`, para a borda não servir a uma origem a resposta de CORS de outra.
+- **Sem concessão é `500`, e não um catálogo vazio.** A atuação `AGENCIAMENTO` ausente quer dizer
+  `NAVEG_EMPRESA_ID` errado ou cadastro incompleto — defeito nosso, que um `200` vazio esconderia como "dia sem
+  saídas".
+- A resposta é `catalogoParaJson`: a concessão vai como listas, porque um `Set` vira `{}` no JSON. O totem lê
+  com `catalogoDoJson`, que passa cada item pelos mesmos decodificadores que leem o Firestore.
 
 ### `POST /reservas` — passo 2
 
@@ -278,8 +287,9 @@ faixa dizendo que as saídas são fictícias. Ninguém precisa desta API para me
 ## Cenários
 
 `vitest`, e a régua é a do `naveg-front`: o app é **montado com a configuração e as portas**, então nenhum
-cenário precisa de variável de ambiente, de rede ou de Firestore. Os adaptadores de verdade têm cenário próprio
-contra o emulador.
+cenário precisa de variável de ambiente, de rede ou de Firestore. O adaptador do Firestore depende de uma
+interface mínima (`collection().get()`, `doc().get()`), e um cenário a cumpre com um objeto — conferindo os
+caminhos e a decodificação. O emulador, com as Rules do fluviapp, entra no passo 2.
 
 O que se confere aqui não é o domínio — ele tem os cenários dele, no pacote dele. É **a fronteira**: o que o
 servidor aceita do cliente, o que ele deriva sozinho, o que ele recusa, e o que ele nunca devolve.
