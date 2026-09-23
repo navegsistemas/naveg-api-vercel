@@ -24,14 +24,16 @@ Os passos 1 e 2 são os passos **9 e 10** do
 o app do Hono montado com a configuração e as portas (por isso os cenários rodam sem variável de ambiente, sem
 rede e sem Firestore), o CORS por lista de origens, a forma única do erro e o `GET /saude`.
 
-**O próximo é o passo 1, `GET /catalogo`** — e ele está bloqueado por coisas que não são código:
+**O próximo é o passo 1, `GET /catalogo`, e ele está destravado** — o que o bloqueava não era código, e caiu
+todo em 2026-09-23:
 
 1. ~~os repositórios na org~~ **feito.** Os dois estão na `navegsistemas`, e o escopo do pacote passou a ser
    `@navegsistemas` por causa disso — o GitHub Packages exige que o escopo seja o nome da org;
-2. **o `@navegsistemas/domain` publicado** (o front faz, pela tag `domain-v0.1.0`), e o `NPM_TOKEN` aqui e na Vercel;
-3. **as duas contas de serviço** e o `NAVEG_EMPRESA_ID` — ver "Configuração".
-
-Enquanto isso não vem, o front não fica parado: o totem dele roda contra o catálogo de demonstração.
+2. ~~o `@navegsistemas/domain` publicado e o `NPM_TOKEN`~~ **feito** (2026-09-23). O 0.1.0 está no registro e o
+   token lê. Lembrete: o `.npmrc` daqui lê `${NPM_TOKEN}` **do ambiente** — com o token só no `~/.npmrc`, o
+   `npm install` dá 401;
+3. ~~as duas contas de serviço e o `NAVEG_EMPRESA_ID`~~ **feito.** `naveg-api-leitura` e `naveg-api-escrita` no
+   `fluvi-app-dev`, com as chaves nas variáveis da Vercel — ver "As contas de serviço".
 
 **Quando destravar**, a ordem é: `npm install @navegsistemas/domain`, o adaptador de leitura do Firestore com porta
 falsa nos cenários, a rota, e só então apontar para o Firestore de verdade (o emulador do repositório do
@@ -208,6 +210,53 @@ lista inteira do que falta — não uma por vez.
 | `ORIGENS_PERMITIDAS` | as origens do front, separadas por vírgula |
 | `TURNSTILE_SECRET` | a chave secreta do desafio (passo 2) |
 | `UPSTASH_REDIS_REST_URL` / `_TOKEN` | o limite por IP (passo 2) |
+
+## As contas de serviço
+
+**Projeto: `fluvi-app-dev`, e tudo é dev por enquanto** (decisão de 2026-09-23). É o único projeto que o
+aplicativo conhece. Quando houver um de produção, **nada daqui migra**: contas novas, chaves novas, variáveis
+novas — e as chaves de dev nunca entram no ambiente de produção.
+
+| conta | papel | quem usa | variável |
+|---|---|---|---|
+| `naveg-api-leitura@fluvi-app-dev.iam.gserviceaccount.com` | `roles/datastore.viewer` | `GET /catalogo`, **e** a conferência do catálogo dentro do `POST /reservas` | `FIREBASE_CONTA_DE_LEITURA` |
+| `naveg-api-escrita@fluvi-app-dev.iam.gserviceaccount.com` | `roles/datastore.user` | **só** o `create` em `reservas` | `FIREBASE_CONTA_DE_ESCRITA` |
+
+O `POST` também lê o catálogo, e lê **com a conta de leitura**, pelo mesmo adaptador e o mesmo cache do `GET`.
+A de escrita aparece numa linha do código só — como o IAM não separa coleção, é o menor lugar possível para
+um engano gravar em `passagens`.
+
+**Não use o botão "Gerar nova chave privada" do console do Firebase.** Ele gera chave da
+`firebase-adminsdk-…`, que administra o projeto inteiro. As duas contas se criam no console do **Google Cloud**:
+
+1. `console.cloud.google.com`, projeto `fluvi-app-dev` → **IAM e administrador → Contas de serviço → Criar**;
+2. ID `naveg-api-leitura`; em "Conceder acesso", **só** o papel *Cloud Datastore Viewer*;
+3. na conta criada, **Chaves → Adicionar chave → JSON**;
+4. repetir com `naveg-api-escrita` e **só** o papel *Cloud Datastore User*.
+
+Ou, com o `gcloud`:
+
+```bash
+P=fluvi-app-dev
+gcloud iam service-accounts create naveg-api-leitura --project=$P --display-name="API da agência: leitura do catálogo"
+gcloud iam service-accounts create naveg-api-escrita --project=$P --display-name="API da agência: gravação de reservas"
+gcloud projects add-iam-policy-binding $P --member="serviceAccount:naveg-api-leitura@$P.iam.gserviceaccount.com" --role=roles/datastore.viewer
+gcloud projects add-iam-policy-binding $P --member="serviceAccount:naveg-api-escrita@$P.iam.gserviceaccount.com" --role=roles/datastore.user
+gcloud iam service-accounts keys create leitura.serviceaccount.json --iam-account=naveg-api-leitura@$P.iam.gserviceaccount.com
+gcloud iam service-accounts keys create escrita.serviceaccount.json --iam-account=naveg-api-escrita@$P.iam.gserviceaccount.com
+```
+
+Depois:
+
+- o **conteúdo** de cada JSON vai para a variável dele na Vercel, marcada como *Sensitive*; o arquivo baixado
+  é apagado em seguida. Nenhum JSON de conta passa pelo repositório — ele é público;
+- nenhuma das duas ganha Editor, Owner ou papel de Firebase Admin;
+- a chave não expira sozinha: troca a cada 90 dias, ou na hora, se houver suspeita;
+- **o `NAVEG_EMPRESA_ID`** é o id do documento da NAVEG em `empresas` — o que tem `atuacoes/AGENCIAMENTO`.
+
+A chave JSON é a escolha da Fase 1, porque é o que o `config.ts` já lê. A alternativa sem chave — a Vercel se
+identificando ao Google por OIDC (Workload Identity Federation) — fica para o endurecimento, e é o que
+aposentaria estas duas chaves.
 
 ## Rodando
 
