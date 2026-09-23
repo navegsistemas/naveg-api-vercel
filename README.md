@@ -39,8 +39,12 @@ Duas lições da subida, para a próxima vez:
 - **a chave JSON só se baixa uma vez**, na criação. O que a aba "Chaves" do console mostra é o *id* da chave, e
   colá-lo na variável dá "o valor não é JSON".
 
-**O próximo é o passo 2, `POST /reservas`** — o passo 10 do plano. Antes dele, a decisão que o plano deixou
-aberta: publicar também o `@navegsistemas/dados`, ou mover o `enviarReserva` para o domínio.
+**O próximo é o passo 2, `POST /reservas`** — o passo 10 do plano. A decisão que ele pedia já foi tomada: o
+`enviarReserva` e a porta `ReservaRepositorio` estão no `@navegsistemas/domain` (0.3.0), e a API grava pelo
+mesmo caso de uso que o totem — falta o adaptador do Firestore, `src/firestore/reserva-firestore.ts`.
+
+**Quando o front subir na Vercel**, o endereço dele entra em `ORIGENS_PERMITIDAS` (e um redeploy daqui). Hoje
+só `http://localhost:4321` está lá.
 
 **Dependência com aviso conhecido:** o `npm audit` aponta `uuid` < 11.1.1 (moderado), que o
 `@google-cloud/storage` puxa por dentro do `firebase-admin`. A API não usa o Storage, e o defeito é na
@@ -286,8 +290,8 @@ Contra o **emulador** do Firestore (sem tocar em produção), aponte `FIRESTORE_
 SDK respeita a variável e ignora as credenciais. O emulador é o do repositório do fluviapp, que já tem a suíte
 de Rules.
 
-E **sem credencial nenhuma** o front continua rodável: o totem cai no catálogo de demonstração dele, com a
-faixa dizendo que as saídas são fictícias. Ninguém precisa desta API para mexer na tela.
+E o front não depende desta API para mexer na tela: com `PUBLIC_URL_DA_API=demonstracao`, o totem roda contra
+o catálogo de demonstração dele, com a faixa dizendo que as saídas são fictícias.
 
 ## Cenários
 
