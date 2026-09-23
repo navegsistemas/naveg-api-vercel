@@ -17,6 +17,7 @@ const CONFIG: Config = {
   contaDeEscrita: '{}',
   empresaId: 'empresa-naveg',
   origensPermitidas: ['https://agencia.naveg.com.br', 'http://localhost:4321'],
+  protecaoDoEnvio: null,
 }
 
 const AMBIENTE_COMPLETO = {
@@ -35,6 +36,7 @@ describe('a configuração', () => {
       contaDeEscrita: '{"a":2}',
       empresaId: 'empresa-naveg',
       origensPermitidas: ['https://agencia.naveg.com.br', 'http://localhost:4321'],
+      protecaoDoEnvio: null,
     })
   })
 
@@ -60,7 +62,7 @@ const SEM_CATALOGO: LeitorDoCatalogo = {
 }
 
 describe('o app', () => {
-  const app = criarApp({ config: CONFIG, catalogo: SEM_CATALOGO })
+  const app = criarApp({ config: CONFIG, catalogo: SEM_CATALOGO, envio: null })
 
   it('responde a saúde sem falar com o Firestore', async () => {
     const resposta = await app.request('/saude')

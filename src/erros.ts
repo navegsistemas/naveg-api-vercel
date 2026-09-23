@@ -26,6 +26,8 @@ export const CODIGOS = [
   'RESERVA_INCOERENTE',
   /** Faltou responder alguma coisa; o roteiro do front sabe para onde levar. */
   'RESERVA_INCOMPLETA',
+  /** O envio de reservas não está configurado neste ambiente (falta o desafio ou o limite). */
+  'ENVIO_INDISPONIVEL',
   /** Qualquer coisa nossa que deu errado. */
   'FALHA_INTERNA',
 ] as const

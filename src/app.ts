@@ -17,16 +17,21 @@ import { cors } from 'hono/cors'
 
 import type { Config } from './config.js'
 import { ErroDaApi, type CorpoDeErro } from './erros.js'
-import type { LeitorDoCatalogo } from './portas.js'
+import { leitorComCache } from './catalogo-em-cache.js'
+import type { LeitorDoCatalogo, Relogio } from './portas.js'
 import { rotaDoCatalogo } from './rotas/catalogo.js'
+import { rotaDeReservas, type DependenciasDoEnvio } from './rotas/reservas.js'
 import { rotaDeSaude } from './rotas/saude.js'
 
 export interface Dependencias {
   readonly config: Config
   readonly catalogo: LeitorDoCatalogo
+  /** O que o `POST /reservas` precisa. `null`: o envio não está configurado, e a rota responde `503`. */
+  readonly envio: DependenciasDoEnvio | null
+  readonly relogio?: Relogio
 }
 
-export function criarApp({ config, catalogo }: Dependencias): Hono {
+export function criarApp({ config, catalogo, envio, relogio = () => new Date() }: Dependencias): Hono {
   const app = new Hono()
 
   app.use(
@@ -41,6 +46,17 @@ export function criarApp({ config, catalogo }: Dependencias): Hono {
 
   app.route('/saude', rotaDeSaude())
   app.route('/catalogo', rotaDoCatalogo(catalogo))
+  app.route(
+    '/reservas',
+    rotaDeReservas({
+      /* O `POST` não tem o cache da borda: guarda o catálogo um minuto na instância, o mesmo prazo. */
+      catalogo: leitorComCache(catalogo, relogio),
+      origensPermitidas: config.origensPermitidas,
+      agenciaId: config.empresaId,
+      relogio,
+      envio,
+    }),
+  )
 
   app.notFound((c) => {
     const corpo: CorpoDeErro = { erro: 'CORPO_INVALIDO', mensagem: 'Rota inexistente' }

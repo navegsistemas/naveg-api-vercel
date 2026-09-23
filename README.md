@@ -13,17 +13,41 @@ Não é uma API pública, não é um serviço de plataforma e não é a porta de
 |---|---|---|
 | 0 | Esqueleto: Hono na Vercel, configuração que falha na partida, CORS, forma do erro, `GET /saude` | ✅ |
 | 1 | `GET /catalogo` — o catálogo do fluviapp, recortado pela concessão da NAVEG | ✅ |
-| 2 | `POST /reservas` — a reserva gravada com conta de serviço, com Turnstile e limite por IP | — |
+| 2 | `POST /reservas` — a reserva gravada com conta de serviço, com Turnstile e limite por IP | ✅ código · ⏳ ligar |
 
 Os passos 1 e 2 são os passos **9 e 10** do
 [plano do `naveg-front`](../naveg-front/docs/plano-de-implementacao.md) — o plano é um só, e é lá que ele mora.
 
 ## Retomar daqui
 
-**Parei no fim do passo 1.** `npm run verify` deve dar **20 cenários verdes**. O `GET /catalogo` existe
-inteiro: a porta (`LeitorDoCatalogo`), o adaptador do Firestore (`src/firestore/catalogo-firestore.ts`), a
-conexão por conta de serviço (`src/firestore/conexao.ts`, que confere na partida que a chave é do projeto
-configurado) e a rota, que recorta e serializa com o `@navegsistemas/domain` 0.2.0.
+**Parei no fim do código do passo 2.** `npm run verify` deve dar **51 cenários verdes**. O `POST /reservas`
+existe inteiro — a rota (`src/rotas/reservas.ts`), a reserva no Firestore com a conta de escrita
+(`src/firestore/reserva-firestore.ts`), o desafio na Cloudflare e o limite no Upstash (`src/protecao/`) — e
+passou pela revisão de segurança que o plano exige antes do deploy. **Ele está no ar desligado**: sem as três
+variáveis da proteção, responde `503 ENVIO_INDISPONIVEL`, e o catálogo segue servindo.
+
+**Para ligar** (em dev, sem conta na Cloudflare):
+
+1. criar um banco no [Upstash](https://upstash.com) (plano gratuito, Redis) e copiar a URL e o token REST;
+2. na Vercel, `TURNSTILE_SECRET=1x0000000000000000000000000000000AA` (a chave **de teste** da Cloudflare, que
+   sempre passa), `UPSTASH_REDIS_REST_URL` e `UPSTASH_REDIS_REST_TOKEN`; redeploy;
+3. no front, `PUBLIC_TURNSTILE_SITE_KEY=1x00000000000000000000AA` (a pública de teste) num `apps/agencia/.env`.
+
+Antes de abrir ao público, as chaves de teste dão lugar às de um widget de verdade, criado no painel da
+Cloudflare e restrito ao domínio da agência.
+
+**Decisões tomadas no passo 2, para confirmar** (todas com cenário, fáceis de mudar):
+
+- **limite de 10 envios por IP a cada 10 minutos**; se o Upstash cair, **deixa passar** (e registra) — o
+  Turnstile continua de pé, e recusar todo mundo seria pior;
+- **nome até 100 caracteres**, telefone até 30; a **observação é ignorada** (o totem não tem o campo);
+- a reserva é gravada com `agenciaId` = `NAVEG_EMPRESA_ID`;
+- o IP vai **inteiro** para a Cloudflare (ela precisa dele para conferir o desafio) e **resumido** (hash) para
+  o Upstash. A Cloudflare passa a tratar dado pessoal em nome da NAVEG — a política de privacidade tem de dizer
+  isso.
+
+**Falta do aceite do plano:** a escrita ponta a ponta contra o **emulador** do Firestore, com as Rules do
+fluviapp carregadas. Os cenários daqui usam portas falsas.
 
 **No ar desde 2026-09-23**, em `https://naveg-api-vercel.vercel.app`: `/saude` e `/catalogo` respondem `200`,
 com CORS para `http://localhost:4321`, lendo o `fluvi-app-dev` com a conta de leitura. **Visto de ponta a ponta** no mesmo dia: o
@@ -38,10 +62,6 @@ Duas lições da subida, para a próxima vez:
 - **variável nova só vale com deploy novo.** Salvar na Vercel não reinicia a função que está no ar;
 - **a chave JSON só se baixa uma vez**, na criação. O que a aba "Chaves" do console mostra é o *id* da chave, e
   colá-lo na variável dá "o valor não é JSON".
-
-**O próximo é o passo 2, `POST /reservas`** — o passo 10 do plano. A decisão que ele pedia já foi tomada: o
-`enviarReserva` e a porta `ReservaRepositorio` estão no `@navegsistemas/domain` (0.3.0), e a API grava pelo
-mesmo caso de uso que o totem — falta o adaptador do Firestore, `src/firestore/reserva-firestore.ts`.
 
 **Quando o front subir na Vercel**, o endereço dele entra em `ORIGENS_PERMITIDAS` (e um redeploy daqui). Hoje
 só `http://localhost:4321` está lá.
@@ -181,17 +201,22 @@ O corpo é **só o que o cliente pode afirmar**:
 { "viagemId": "…", "data": "2026-10-14", "respostas": { }, "desafio": "token do Turnstile" }
 ```
 
-O servidor deriva o resto e **não confia em mais nada**:
+O servidor deriva o resto e **não confia em mais nada**. As conferências vão da mais barata à mais cara:
 
-1. valida o desafio e o limite por IP;
-2. carrega o catálogo e procura a travessia `viagemId@data` entre as **ofertadas agora**. Não achou — inativa,
-   fora da concessão, ou já partiu — é `409 TRAVESSIA_INDISPONIVEL`;
-3. monta com `montarReserva`, usando **código e instante do servidor**. Se o corpo trouxer `codigo` ou
-   `criadoEm`, são ignorados;
-4. incoerente é `422 RESERVA_INCOERENTE` com as pendências tipadas — o front já tem texto para cada uma;
-5. grava com `create`. Documento existente gera outro código e monta de novo, até cinco vezes.
+1. **a origem** tem de estar em `ORIGENS_PERMITIDAS` → `403 ORIGEM_NAO_PERMITIDA`;
+2. **o envio ligado** (Turnstile e Upstash configurados) → `503 ENVIO_INDISPONIVEL`;
+3. **o corpo**, até 16 kB, na forma estrita do `pedidoDeReservaDoJson` do domínio → `413`/`400 CORPO_INVALIDO`;
+4. **o limite por IP** → `429 LIMITE_EXCEDIDO`;
+5. **o desafio**, no `siteverify` da Cloudflare, com a ação `reserva` → `403 DESAFIO_INVALIDO`;
+6. **a travessia** `viagemId@data` entre as **ofertadas agora**, no catálogo recortado (guardado um minuto na
+   instância). Inativa, fora da concessão ou já partida → `409 TRAVESSIA_INDISPONIVEL`;
+7. **a montagem e a gravação**: o `enviarReserva` do domínio, com **código e instante do servidor** e
+   `create` no Firestore — documento existente gera outro código, até cinco vezes. Incompleta ou incoerente →
+   `422`, com as pendências tipadas. `codigo`, `criadoEm`, `status`, `agenciaId` e `observacao` mandados no
+   corpo são ignorados.
 
-Responde `201 { "codigo": "NVG-7K3QP2" }`.
+Responde `201 { "codigo": "NVG-7K3QP2", "reserva": { … } }` — o documento como foi gravado, que o totem lê com
+o mesmo codec que o aplicativo usa.
 
 ## Segurança
 
@@ -216,8 +241,9 @@ O resto:
 
 ## Configuração
 
-Copie `.env.example` para `.env`. Todas são obrigatórias, e a ausência de qualquer uma derruba a partida com a
-lista inteira do que falta — não uma por vez.
+Copie `.env.example` para `.env`. As cinco primeiras são obrigatórias, e a ausência de qualquer uma derruba a
+partida com a lista inteira do que falta — não uma por vez. As três da proteção são **opcionais e juntas**:
+faltando qualquer uma, o `POST /reservas` responde `503` e a partida avisa qual falta.
 
 | variável | o que é |
 |---|---|
@@ -226,8 +252,8 @@ lista inteira do que falta — não uma por vez.
 | `FIREBASE_CONTA_DE_ESCRITA` | JSON da conta de serviço com `Cloud Datastore User` |
 | `NAVEG_EMPRESA_ID` | a empresa NAVEG no fluviapp, para achar `empresas/{id}/atuacoes/AGENCIAMENTO` |
 | `ORIGENS_PERMITIDAS` | as origens do front, separadas por vírgula |
-| `TURNSTILE_SECRET` | a chave secreta do desafio (passo 2) |
-| `UPSTASH_REDIS_REST_URL` / `_TOKEN` | o limite por IP (passo 2) |
+| `TURNSTILE_SECRET` | a chave **secreta** do widget do Turnstile (em dev, a de teste: `1x0000000000000000000000000000000AA`) |
+| `UPSTASH_REDIS_REST_URL` / `_TOKEN` | o Redis do limite por IP; o token também é o sal do resumo do IP |
 
 ## As contas de serviço
 

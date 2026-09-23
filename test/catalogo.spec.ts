@@ -26,6 +26,7 @@ const CONFIG: Config = {
   contaDeEscrita: '{}',
   empresaId: 'empresa-naveg',
   origensPermitidas: ['https://agencia.naveg.com.br', 'http://localhost:4321'],
+  protecaoDoEnvio: null,
 }
 
 const embarcacao = (id: string, nome: string, tipo: 'FERRY_BOAT' | 'LANCHA' | 'NAVIO', empresaId = 'naveg') => ({
@@ -68,7 +69,7 @@ afterEach(() => {
 
 describe('GET /catalogo', () => {
   it('responde o catálogo recortado pela concessão, na forma que o totem lê', async () => {
-    const resposta = await criarApp({ config: CONFIG, catalogo: lendo(POOL) }).request('/catalogo')
+    const resposta = await criarApp({ config: CONFIG, catalogo: lendo(POOL), envio: null }).request('/catalogo')
     expect(resposta.status).toBe(200)
 
     const corpo: unknown = await resposta.json()
@@ -80,7 +81,7 @@ describe('GET /catalogo', () => {
   })
 
   it('o que a concessão não cobre não sai — nem rota inativa, nem embarcação que não resolve, nem o pool alheio', async () => {
-    const resposta = await criarApp({ config: CONFIG, catalogo: lendo(POOL) }).request('/catalogo')
+    const resposta = await criarApp({ config: CONFIG, catalogo: lendo(POOL), envio: null }).request('/catalogo')
     const texto = await resposta.text()
     for (const fora of ['v-rota-inativa', 'r-volta-inativa', 'v-porto-fora', 'p-mao', 'Manaus', 'v-nao-concedida',
       'e-alheio', 'Navio de Outra Agência', 'v-embarcacao-some', 'e-apagada']) {
@@ -90,7 +91,7 @@ describe('GET /catalogo', () => {
 
   it('cada leitura deixa uma linha de log com contagens — e nenhum id, nenhum nome', async () => {
     const log = vi.spyOn(console, 'info').mockImplementation(() => {})
-    await criarApp({ config: CONFIG, catalogo: lendo(POOL) }).request('/catalogo')
+    await criarApp({ config: CONFIG, catalogo: lendo(POOL), envio: null }).request('/catalogo')
     const linha = String(log.mock.calls[0]?.[0])
     expect(linha).toContain('pool: 5 viagens (5 ativas), 3 rotas (2 ativas), 3 portos, 2 embarcações')
     expect(linha).toContain('concessão: 2 embarcações e 2 portos')
@@ -99,13 +100,13 @@ describe('GET /catalogo', () => {
   })
 
   it('a resposta boa vai com o cache de borda', async () => {
-    const resposta = await criarApp({ config: CONFIG, catalogo: lendo(POOL) }).request('/catalogo')
+    const resposta = await criarApp({ config: CONFIG, catalogo: lendo(POOL), envio: null }).request('/catalogo')
     expect(resposta.headers.get('cache-control')).toBe(CACHE_DO_CATALOGO)
   })
 
   it('sem concessão é 500 — e não um catálogo vazio, que seria um totem sem saídas com cara de funcionando', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
-    const resposta = await criarApp({ config: CONFIG, catalogo: lendo({ ...POOL, atuacao: null }) }).request('/catalogo')
+    const resposta = await criarApp({ config: CONFIG, catalogo: lendo({ ...POOL, atuacao: null }), envio: null }).request('/catalogo')
     expect(resposta.status).toBe(500)
     expect(await resposta.json()).toEqual({ erro: 'FALHA_INTERNA', mensagem: 'Falha interna' })
     expect(resposta.headers.get('cache-control')).toBeNull()
@@ -116,7 +117,7 @@ describe('GET /catalogo', () => {
     const falhando: LeitorDoCatalogo = {
       ler: () => Promise.reject(new Error('7 PERMISSION_DENIED: projects/fluvi-app-dev/databases/(default) viagens')),
     }
-    const resposta = await criarApp({ config: CONFIG, catalogo: falhando }).request('/catalogo')
+    const resposta = await criarApp({ config: CONFIG, catalogo: falhando, envio: null }).request('/catalogo')
     expect(resposta.status).toBe(500)
     const texto = await resposta.text()
     for (const vazamento of ['PERMISSION_DENIED', 'fluvi-app-dev', 'viagens', 'databases']) expect(texto).not.toContain(vazamento)
@@ -125,7 +126,7 @@ describe('GET /catalogo', () => {
   })
 
   it('o CORS vale aqui também, e a resposta varia pela origem — o cache de borda não pode servir a origem de outro', async () => {
-    const app = criarApp({ config: CONFIG, catalogo: lendo(POOL) })
+    const app = criarApp({ config: CONFIG, catalogo: lendo(POOL), envio: null })
     const daAgencia = await app.request('/catalogo', { headers: { Origin: 'http://localhost:4321' } })
     expect(daAgencia.headers.get('access-control-allow-origin')).toBe('http://localhost:4321')
     expect(daAgencia.headers.get('vary')).toMatch(/origin/i)

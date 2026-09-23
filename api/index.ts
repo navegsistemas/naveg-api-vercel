@@ -12,8 +12,9 @@
  * seguintes na mesma instância reaproveitam, e a que falta uma variável — ou traz uma conta de outro projeto —
  * falha na partida, não na requisição.
  *
- * É o **único** arquivo que sabe que do outro lado há um Firestore. A conta de escrita ainda não é conectada:
- * ela entra com o `POST /reservas`, e até lá não há motivo para essa identidade existir em memória.
+ * É o **único** arquivo que sabe que do outro lado há um Firestore, uma Cloudflare e um Upstash. A conta de
+ * escrita só é conectada quando o envio está configurado: sem desafio e limite não há `POST`, e sem `POST` não
+ * há motivo para essa identidade existir em memória.
  */
 import { handle } from '@hono/node-server/vercel'
 
@@ -21,8 +22,25 @@ import { criarApp } from '../src/app.js'
 import { lerConfig } from '../src/config.js'
 import { catalogoDoFirestore } from '../src/firestore/catalogo-firestore.js'
 import { firestoreDaConta } from '../src/firestore/conexao.js'
+import { reservaNoFirestore } from '../src/firestore/reserva-firestore.js'
+import { limiteNoUpstash } from '../src/protecao/limite-upstash.js'
+import { desafioNaCloudflare } from '../src/protecao/turnstile.js'
+import type { DependenciasDoEnvio } from '../src/rotas/reservas.js'
 
 const config = lerConfig()
 const leitura = firestoreDaConta('leitura', config.contaDeLeitura, config.projetoFirebase)
 
-export default handle(criarApp({ config, catalogo: catalogoDoFirestore(leitura, config.empresaId) }))
+const protecao = config.protecaoDoEnvio
+const envio: DependenciasDoEnvio | null =
+  protecao === null
+    ? null
+    : {
+        repositorio: reservaNoFirestore(firestoreDaConta('escrita', config.contaDeEscrita, config.projetoFirebase)),
+        desafio: desafioNaCloudflare(protecao.segredoDoTurnstile),
+        limite: limiteNoUpstash(protecao.upstashUrl, protecao.upstashToken),
+        /* O token do Upstash já é segredo da implantação, e o contador vive no mesmo lugar que ele: trocar um
+           reinicia o outro, que é o certo. */
+        salDoIp: protecao.upstashToken,
+      }
+
+export default handle(criarApp({ config, catalogo: catalogoDoFirestore(leitura, config.empresaId), envio }))

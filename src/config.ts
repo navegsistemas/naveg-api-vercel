@@ -17,6 +17,18 @@ export interface Config {
   readonly contaDeEscrita: string
   readonly empresaId: string
   readonly origensPermitidas: readonly string[]
+  /**
+   * O que protege o `POST /reservas`: a chave secreta do Turnstile e o Upstash do limite por IP. **Opcional**,
+   * e junto: faltando qualquer peça, o envio responde `503` e o catálogo segue servindo. Um `POST` sem desafio
+   * ou sem limite não existe — nem em desenvolvimento.
+   */
+  readonly protecaoDoEnvio: ProtecaoDoEnvio | null
+}
+
+export interface ProtecaoDoEnvio {
+  readonly segredoDoTurnstile: string
+  readonly upstashUrl: string
+  readonly upstashToken: string
 }
 
 export class ConfiguracaoIncompleta extends Error {
@@ -53,5 +65,23 @@ export function lerConfig(ambiente: Readonly<Record<string, string | undefined>>
       .split(',')
       .map((origem) => origem.trim().replace(/\/$/, ''))
       .filter((origem) => origem.length > 0),
+    protecaoDoEnvio: lerProtecao(ambiente),
+  }
+}
+
+const PROTECAO = ['TURNSTILE_SECRET', 'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN'] as const
+
+/** As três juntas, ou nenhuma. Metade configurada é o mesmo que nada — e a partida diz o que falta. */
+function lerProtecao(ambiente: Readonly<Record<string, string | undefined>>): ProtecaoDoEnvio | null {
+  const presentes = PROTECAO.filter((chave) => (ambiente[chave] ?? '').trim().length > 0)
+  if (presentes.length < PROTECAO.length) {
+    const faltando = PROTECAO.filter((chave) => !presentes.includes(chave))
+    console.warn(`envio de reservas desligado: faltam ${faltando.join(', ')}`)
+    return null
+  }
+  return {
+    segredoDoTurnstile: (ambiente['TURNSTILE_SECRET'] as string).trim(),
+    upstashUrl: (ambiente['UPSTASH_REDIS_REST_URL'] as string).trim(),
+    upstashToken: (ambiente['UPSTASH_REDIS_REST_TOKEN'] as string).trim(),
   }
 }
