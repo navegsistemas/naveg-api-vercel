@@ -30,7 +30,7 @@ com `npm run test:emulador`.
 **Para ligar esta versão**, nesta ordem:
 
 1. o `fluviapp-kmp` com as Rules novas publicadas no projeto (o merge do PR de lá faz isso em homologação);
-2. o `@navegsistemas/domain` **0.5.0** publicado, e `npm install` aqui para o `package-lock.json` o registrar;
+2. o `@navegsistemas/domain` **0.5.0** publicado — feito em 2026-09-23, e o `package-lock.json` já o registra;
 3. na Vercel, `FIREBASE_WEB_API_KEY` = a `apiKey` do app Web do Firebase; redeploy;
 4. **depois de ver uma reserva gravada**, tirar o papel *Cloud Datastore User* da `naveg-api-escrita` no IAM.
    Enquanto ele existir, uma chave vazada ainda grava por cima das Rules — é o passo que fecha a P3.
