@@ -85,11 +85,13 @@ escopo da `ORIGENS_PERMITIDAS` libera só o front do mesmo ambiente:
 | escopo | origens | de onde vem |
 |---|---|---|
 | *Preview* | `http://localhost:4321`, `https://naveg-front-agencia.vercel.app` | a homologação do front (a `main` de lá) |
-| *Production* | `http://localhost:4321` | o domínio oficial entra no lançamento de produção |
+| *Production* | `http://localhost:4321`, `https://naveg-front-agencia.vercel.app` | **provisório:** até existir o domínio de homologação da API, o deploy de produção daqui (sobre o `fluvi-app-dev`) faz as vezes de homologação. O domínio oficial entra no lançamento |
 
-Produção só muda por decisão explícita: o front de homologação fala com a **homologação** da API (o domínio
-fixo da `main` daqui, pela `PUBLIC_URL_DA_API` do escopo *Preview* de lá), nunca com a de produção. E a variável
-só vale com deploy novo.
+O desenho é o front de homologação falar com a **homologação** da API (um domínio próprio fixo na `main`
+daqui — o login da Vercel não deixa um `*.vercel.app` de preview ser chamado pelo navegador). **Enquanto esse
+domínio não existe**, ele fala com o `naveg-api-vercel.vercel.app`, o deploy de produção, que aponta para o
+`fluvi-app-dev` e não tem cliente. Detalhes no plano de ambientes do `naveg-front` (§3). E a variável só vale
+com deploy novo.
 
 **Dependência com aviso conhecido:** o `npm audit` aponta `uuid` < 11.1.1 (moderado), que o
 `@google-cloud/storage` puxa por dentro do `firebase-admin`. A API não usa o Storage, e o defeito é na
