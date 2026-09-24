@@ -79,8 +79,17 @@ Duas lições da subida, para a próxima vez:
 - **a chave JSON só se baixa uma vez**, na criação. O que a aba "Chaves" do console mostra é o *id* da chave, e
   colá-lo na variável dá "o valor não é JSON".
 
-**Quando o front subir na Vercel**, o endereço dele entra em `ORIGENS_PERMITIDAS` (e um redeploy daqui). Hoje
-só `http://localhost:4321` está lá.
+**As origens do front, por ambiente** (2026-09-24). O front está na Vercel (`naveg-front-agencia`), e cada
+escopo da `ORIGENS_PERMITIDAS` libera só o front do mesmo ambiente:
+
+| escopo | origens | de onde vem |
+|---|---|---|
+| *Preview* | `http://localhost:4321`, `https://naveg-front-agencia.vercel.app` | a homologação do front (a `main` de lá) |
+| *Production* | `http://localhost:4321` | o domínio oficial entra no lançamento de produção |
+
+Produção só muda por decisão explícita: o front de homologação fala com a **homologação** da API (o domínio
+fixo da `main` daqui, pela `PUBLIC_URL_DA_API` do escopo *Preview* de lá), nunca com a de produção. E a variável
+só vale com deploy novo.
 
 **Dependência com aviso conhecido:** o `npm audit` aponta `uuid` < 11.1.1 (moderado), que o
 `@google-cloud/storage` puxa por dentro do `firebase-admin`. A API não usa o Storage, e o defeito é na
