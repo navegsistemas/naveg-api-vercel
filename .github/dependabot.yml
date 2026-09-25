@@ -1,7 +1,9 @@
-# Atualizações semanais, agrupadas: um PR por ecossistema, e não um por pacote. Cada PR passa pelos mesmos
-# checks de qualquer outro (`verificar.yml`) e pela fumaça no preview.
+# Atualizações semanais. As pequenas (minor e patch) vêm juntas, num PR só; as majors, uma por PR — cada uma é
+# uma migração que se decide e se faz separada. Cada PR passa pelos mesmos checks de qualquer outro
+# (`verificar.yml`) e pela fumaça no preview.
 #
 # O `@navegsistemas/domain` fica de fora: ele muda por decisão, junto com o `naveg-front`, e não por agenda.
+# O registro do GitHub Packages é lido com o segredo de Dependabot `DEPENDABOT_NPM_TOKEN` (`read:packages`).
 version: 2
 registries:
   github-packages:
@@ -16,9 +18,12 @@ updates:
       interval: weekly
     ignore:
       - dependency-name: '@navegsistemas/domain'
+      # Os tipos acompanham o Node do runtime (22), não o mais novo.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
     groups:
       npm:
-        patterns: ['*']
+        update-types: [minor, patch]
   - package-ecosystem: github-actions
     directory: /
     schedule:
