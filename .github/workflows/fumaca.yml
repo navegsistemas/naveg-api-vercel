@@ -1,0 +1,68 @@
+# **A fumaça pós-deploy** — a API que acabou de subir responde de verdade?
+#
+# Nasceu do incidente de 2026-09-23: o PR #1 derrubou a função na partida (`ERR_REQUIRE_ESM` no runtime da
+# Vercel), com todos os cenários verdes — e o preview do próprio PR já caía do mesmo jeito. Com este check, o
+# PR teria ficado vermelho em vez de a API ficar 12 minutos fora do ar.
+#
+# Dispara quando a Vercel avisa o GitHub que um deploy terminou (`deployment_status`), no preview de cada PR e
+# em produção. Três perguntas:
+#   - `GET /saude` responde 200 — a função sobe;
+#   - `GET /catalogo` responde 200 com viagens — a conta de leitura e o Firestore funcionam;
+#   - `POST /reservas` com corpo vazio responde 400, e não 503 — o envio está configurado (a proteção e a chave
+#     Web), sem gravar nada: o corpo é recusado antes de chegar ao Firestore.
+#
+# Os previews ficam atrás do login da Vercel. A fumaça entra com o segredo de *Protection Bypass for
+# Automation* (na Vercel: Settings → Deployment Protection), guardado como `VERCEL_AUTOMATION_BYPASS_SECRET`
+# nos segredos do repositório. Em produção, se falhar, abre uma issue.
+name: fumaca
+
+on:
+  deployment_status:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  fumaca:
+    if: github.event.deployment_status.state == 'success'
+    runs-on: ubuntu-latest
+    env:
+      URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
+      AMBIENTE: ${{ github.event.deployment.environment }}
+      BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+      # A origem do front de homologação: está na `ORIGENS_PERMITIDAS` de Preview e de Production.
+      ORIGEM: https://naveg-front-agencia.vercel.app
+    steps:
+      - name: a API responde
+        run: |
+          set -u
+          pedir() {
+            curl -sS --retry 3 --retry-all-errors --retry-delay 5 --max-time 30 \
+              -H "x-vercel-protection-bypass: $BYPASS" -o corpo.txt -w '%{http_code}' "$@"
+          }
+          falhou=0
+          conferir() {
+            if [ "$1" = "$2" ]; then echo "✓ $3: $1"; else echo "✗ $3: esperava $2, veio $1"; head -c 500 corpo.txt; echo; falhou=1; fi
+          }
+
+          echo "fumaça em $URL ($AMBIENTE)"
+
+          conferir "$(pedir "$URL/saude")" 200 'GET /saude'
+
+          conferir "$(pedir "$URL/catalogo")" 200 'GET /catalogo'
+          grep -q '"viagens":\[{' corpo.txt || { echo "✗ GET /catalogo: nenhuma viagem"; falhou=1; }
+
+          conferir "$(pedir -X POST "$URL/reservas" -H "Origin: $ORIGEM" -H 'Content-Type: application/json' -d '{}')" \
+            400 'POST /reservas vazio (400 = envio ligado; 503 = envio sem configuração)'
+
+          exit $falhou
+
+      - name: em produção, abre uma issue
+        if: failure() && github.event.deployment.environment == 'Production'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "A fumaça falhou em produção: ${GITHUB_SHA::7}" \
+            --body "O deploy de produção ($URL) não passou na fumaça. Ver $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. Voltar atrás: *Instant Rollback* na Vercel."

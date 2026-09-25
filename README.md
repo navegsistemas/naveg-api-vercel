@@ -27,29 +27,20 @@ confere o código livre e grava a reserva **e o evento `reserva.criada`** juntos
 `reserva-firestore.ts`). `npm run verify` dá **56 cenários verdes** e um pulado — o de ponta a ponta, que roda
 com `npm run test:emulador`.
 
-**Para ligar esta versão**, nesta ordem:
+**Ligada em 2026-09-25.** Com `FIREBASE_WEB_API_KEY`, `TURNSTILE_SECRET` (o widget de homologação, restrito a
+`naveg-front-agencia.vercel.app`) e `UPSTASH_REDIS_REST_URL`/`_TOKEN` na Vercel, a `NVG-T7WG72` feita no totem
+de homologação chegou ao painel do KMP. Depois, a `naveg-api-escrita` ficou **sem papel nenhum** no IAM, e a
+`NVG-KX1NK1` gravou só pelas Rules — o passo que fecha a P3: uma chave vazada não grava mais por cima delas.
+Sem as três variáveis da proteção, o `POST` responde `503 ENVIO_INDISPONIVEL`, e o catálogo segue servindo.
 
-1. o `fluviapp-kmp` com as Rules novas publicadas no projeto (o merge do PR de lá faz isso em homologação);
-2. o `@navegsistemas/domain` **0.5.0** publicado — feito em 2026-09-23, e o `package-lock.json` já o registra;
-3. na Vercel, `FIREBASE_WEB_API_KEY` = a `apiKey` do app Web do Firebase; redeploy;
-4. **depois de ver uma reserva gravada**, tirar o papel *Cloud Datastore User* da `naveg-api-escrita` no IAM.
-   Enquanto ele existir, uma chave vazada ainda grava por cima das Rules — é o passo que fecha a P3.
+**Um erro que parece do banco e não é:** `auth/invalid-custom-token` no log ("o banco recusou a gravação")
+quer dizer que o login do serviço falhou — a conta de escrita apagada, ou a chave dela trocada sem atualizar a
+`FIREBASE_CONTA_DE_ESCRITA`. Foi o que aconteceu em 2026-09-25, das 13:13 às 13:23, quando a conta foi apagada
+em vez de perder o papel.
 
-**O passo 2, como ficou antes disso.** O `POST /reservas`
-existe inteiro — a rota (`src/rotas/reservas.ts`), a reserva no Firestore com a conta de escrita
-(`src/firestore/reserva-firestore.ts`), o desafio na Cloudflare e o limite no Upstash (`src/protecao/`) — e
-passou pela revisão de segurança que o plano exige antes do deploy. **Ele está no ar desligado**: sem as três
-variáveis da proteção, responde `503 ENVIO_INDISPONIVEL`, e o catálogo segue servindo.
-
-**Para ligar** (em dev, sem conta na Cloudflare):
-
-1. criar um banco no [Upstash](https://upstash.com) (plano gratuito, Redis) e copiar a URL e o token REST;
-2. na Vercel, `TURNSTILE_SECRET=1x0000000000000000000000000000000AA` (a chave **de teste** da Cloudflare, que
-   sempre passa), `UPSTASH_REDIS_REST_URL` e `UPSTASH_REDIS_REST_TOKEN`; redeploy;
-3. no front, `PUBLIC_TURNSTILE_SITE_KEY=1x00000000000000000000AA` (a pública de teste) num `apps/agencia/.env`.
-
-Antes de abrir ao público, as chaves de teste dão lugar às de um widget de verdade, criado no painel da
-Cloudflare e restrito ao domínio da agência.
+**Em dev, sem conta na Cloudflare:** `TURNSTILE_SECRET=1x0000000000000000000000000000000AA` (a chave **de
+teste**, que sempre passa) e, no front, `PUBLIC_TURNSTILE_SITE_KEY=1x00000000000000000000AA`. O Upstash é
+obrigatório mesmo assim (plano gratuito, Redis, a URL e o token REST).
 
 **Decisões tomadas no passo 2, para confirmar** (todas com cenário, fáceis de mudar):
 
@@ -295,7 +286,7 @@ novas — e as chaves de dev nunca entram no ambiente de produção.
 | conta | papel | quem usa | variável |
 |---|---|---|---|
 | `naveg-api-leitura@fluvi-app-dev.iam.gserviceaccount.com` | `roles/datastore.viewer` | `GET /catalogo`, **e** a conferência do catálogo dentro do `POST /reservas` | `FIREBASE_CONTA_DE_LEITURA` |
-| `naveg-api-escrita@fluvi-app-dev.iam.gserviceaccount.com` | **nenhum** — só assina o token de serviço (hoje ainda com `roles/datastore.user`, a remover: ver "Retomar daqui") | a gravação de reservas, **sob as Rules** | `FIREBASE_CONTA_DE_ESCRITA` |
+| `naveg-api-escrita@fluvi-app-dev.iam.gserviceaccount.com` | **nenhum** — só assina o token de serviço (o `roles/datastore.user` saiu em 2026-09-25) | a gravação de reservas, **sob as Rules** | `FIREBASE_CONTA_DE_ESCRITA` |
 
 O `POST` também lê o catálogo, e lê **com a conta de leitura**, pelo mesmo adaptador e o mesmo cache do `GET`.
 A de escrita aparece numa linha do código só — como o IAM não separa coleção, é o menor lugar possível para
