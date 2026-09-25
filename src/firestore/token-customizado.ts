@@ -4,7 +4,7 @@
  * O `createCustomToken` do Admin SDK faria o mesmo, mas carregar `firebase-admin/auth` puxa o `jwks-rsa` 4, que
  * faz `require()` do `jose` 6 — um pacote só-ESM. O Node desta máquina aceita; **o runtime da Vercel não**, e a
  * função inteira caiu na partida, até o `/saude` (2026-09-23, `ERR_REQUIRE_ESM`). Nenhum cenário local pegaria.
- * `test/estrutura.spec.ts` impede o import de voltar.
+ * `test/token-customizado.spec.ts` impede o import de voltar.
  *
  * O token é o JWT RS256 que o Firebase documenta para "criar tokens com uma biblioteca JWT": emissor e sujeito
  * são a conta de serviço, a audiência é o Identity Toolkit, vale no máximo uma hora, e leva o `uid` e as
