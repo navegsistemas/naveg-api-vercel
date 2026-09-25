@@ -1,14 +1,15 @@
 # **Os checks de cada pull request** — o que tem de estar verde antes de algo entrar na `main`.
 #
 # A `main` vai sozinha para o ar a cada merge (plano de ambientes do `naveg-front`, §4), então a conferência
-# acontece aqui. Os dois jobs viram checks obrigatórios no ruleset da `main` e da `producao`.
+# acontece aqui. Os jobs viram checks obrigatórios no ruleset da `main` e da `producao`.
 #
 # O `@navegsistemas/domain` vem do GitHub Packages, e o `.npmrc` lê o token de `NPM_TOKEN`. Aqui ele é o
 # `GITHUB_TOKEN` do próprio job, que expira sozinho — para isso o pacote precisa conceder leitura a este
 # repositório (no GitHub, o pacote → *Package settings* → *Manage Actions access*).
 #
-# O cenário contra o emulador ainda fica pulado: ele precisa do `fluviapp-kmp` ao lado, que o CI só clona
-# quando existir o token da org (fase 0b).
+# O job `emulador` clona o `fluviapp-kmp`, privado, com um token *fine-grained* da org só de leitura
+# (`FLUVIAPP_LEITURA_TOKEN`, nos segredos de Actions **e** de Dependabot), e grava de ponta a ponta contra o
+# emulador do Firestore e do Auth, com as Rules de lá.
 name: verificar
 
 on:
@@ -48,3 +49,30 @@ jobs:
           node-version: 22
       # Só as dependências que vão ao ar, e só de alta gravidade para cima: as moderadas entram pelo Dependabot.
       - run: npm audit --omit=dev --audit-level=high
+
+  emulador:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # As Rules vêm do centralizador, no ramo que está em homologação: é contra elas que a API grava no ar.
+      - uses: actions/checkout@v7
+        with:
+          repository: navegsistemas/fluviapp-kmp
+          token: ${{ secrets.FLUVIAPP_LEITURA_TOKEN }}
+          path: fluviapp-kmp
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      # O emulador do Firebase é Java.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+        env:
+          NPM_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # A reserva e o reserva.criada gravados pelo usuário de serviço, e a recusa da reserva de outra agência.
+      - run: npm run test:emulador
+        env:
+          FLUVIAPP_KMP: ${{ github.workspace }}/fluviapp-kmp
