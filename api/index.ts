@@ -17,7 +17,7 @@
  * `POST` não há motivo para essa identidade existir em memória. E mesmo com ele, ela só **assina o token** com
  * que a API grava como usuário de serviço, sob as Rules do fluviapp (`src/firestore/servico.ts`).
  */
-import { handle } from '@hono/node-server/vercel'
+import { getRequestListener } from '@hono/node-server'
 
 import { criarApp } from '../src/app.js'
 import { lerConfig } from '../src/config.js'
@@ -56,4 +56,8 @@ const envio: DependenciasDoEnvio | null =
         salDoIp: protecao.upstashToken,
       }
 
-export default handle(criarApp({ config, catalogo: catalogoDoFirestore(leitura, config.empresaId), envio }))
+/* O `handle` do `@hono/node-server/vercel` (1.x) era só isto, e a 2.x tirou o atalho: o ouvinte de requisição do
+   Node, que traduz o `IncomingMessage` da função no `Request` do app. */
+const app = criarApp({ config, catalogo: catalogoDoFirestore(leitura, config.empresaId), envio })
+
+export default getRequestListener(app.fetch)
