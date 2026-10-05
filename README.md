@@ -84,10 +84,20 @@ domínio não existe**, ele fala com o `naveg-api-vercel.vercel.app`, o deploy d
 `fluvi-app-dev` e não tem cliente. Detalhes no plano de ambientes do `naveg-front` (§3). E a variável só vale
 com deploy novo.
 
-**Dependência com aviso conhecido:** o `npm audit` aponta `uuid` < 11.1.1 (moderado), que o
-`@google-cloud/storage` puxa por dentro do `firebase-admin`. A API não usa o Storage, e o defeito é na
-geração de UUID v3/v5/v6 com buffer. O `npm audit fix` não resolve sem trocar a versão do `firebase-admin`;
-fica registrado para a próxima atualização dele.
+**O merge na `main` não é o deploy da homologação** *(visto em 2026-10-05)*. Ele gera um deploy *Preview*; a
+homologação usa o de *Production*. Levar a `main` até ela é promover o deploy do merge — `vercel promote <url do
+deploy>`, à mão, por quem tem acesso ao projeto —, que refaz o build com as variáveis de *Production*. Voltar
+atrás: `vercel rollback`. Foi assim com o #17 (a reserva de encomenda). Acaba com o provisório.
+
+**Overrides de segurança, no `package.json`** *(2026-10-05)*:
+
+- `@grpc/grpc-js` ^1.14.5 **dentro do `@firebase/firestore`**: o 4.17.2 fixa `~1.9`, e os avisos
+  GHSA-m9gg-hp2v-232j e GHSA-f596-whhp-79r4 (alta) pedem 1.13.6. Os dois são do lado servidor do gRPC — a API é
+  só cliente —, mas a auditoria do CI os barra. O 1.14.5 é o que o `firebase-admin` já usa, e o emulador grava
+  por ele. **Sai quando o `firebase` subir o `grpc-js`**: conferir a cada atualização dele
+  (`npm ls @grpc/grpc-js`).
+- `uuid` ^11.1.1: o `@google-cloud/storage`, por dentro do `firebase-admin`, puxava o 9 (moderado, UUID v3/v5/v6
+  com buffer; a API não usa o Storage). Sai quando o `firebase-admin` o trouxer sozinho.
 
 ## Onde ela se encaixa
 
