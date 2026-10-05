@@ -16,7 +16,7 @@ import { connectAuthEmulator, getAuth, signInWithCustomToken } from 'firebase/au
 import { connectFirestoreEmulator, getFirestore } from 'firebase/firestore'
 import { describe, expect, it } from 'vitest'
 
-import { DataCalendario, InstanteLocal, montarReserva, type Reserva } from '@navegsistemas/domain'
+import { DataCalendario, InstanteLocal, montarEncomenda, montarReserva, type Reserva, type RespostasDaEncomenda } from '@navegsistemas/domain'
 
 import { loteNoFirestore, reservaNoFirestore } from '../src/firestore/reserva-firestore.js'
 import { sessaoDoServico, UID_DO_SERVICO } from '../src/firestore/servico.js'
@@ -42,8 +42,23 @@ function reserva(codigo: string, agenciaId = AGENCIA): Reserva {
   return { ...montagem.reserva, agenciaId }
 }
 
+/** A reserva de encomenda, montada pelo domínio — a que a regra de `reservas` do KMP passou a aceitar. */
+function encomenda(codigo: string, respostas: RespostasDaEncomenda): Reserva {
+  const montagem = montarEncomenda(
+    respostas,
+    {
+      ocorrencia: { viagemId: 'v', data: DataCalendario.de('2026-10-14') as DataCalendario },
+      tipoEmbarcacao: 'FERRY_BOAT',
+      partida: InstanteLocal.de('2026-10-14T18:00') as InstanteLocal,
+    },
+    { codigo, criadoEm: InstanteLocal.de('2026-10-13T08:00') as InstanteLocal, agenciaId: AGENCIA },
+  )
+  if (montagem.caso !== 'OK') throw new Error('exemplo incoerente')
+  return montagem.reserva
+}
+
 describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PULADO: sem emulador (npm run test:emulador)'}`, () => {
-  it('grava reserva e evento pelo token de serviço, recusa o código em uso, e as Rules recusam outra agência', async () => {
+  it('grava reserva e evento pelo token de serviço, recusa o código em uso, as Rules recusam outra agência, e a encomenda passa', async () => {
     const admin = iniciarAdmin({ projectId: PROJETO }, 'admin-do-emulador')
     const cliente = iniciarCliente({ apiKey: 'chave-do-emulador', projectId: PROJETO }, 'cliente-do-emulador')
     connectAuthEmulator(getAuth(cliente), `http://${AUTH}`, { disableWarnings: true })
@@ -78,5 +93,35 @@ describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PU
        prova de que o emulador subiu **com** as Rules: sem elas, ele aceita tudo, e este passo falha. */
     expect((await repositorio.criar(reserva('NVG-7K3QP3', 'outra-agencia'))).caso).toBe('FALHA')
     expect((await banco.doc('reservas/NVG-7K3QP3').get()).exists).toBe(false)
+
+    /* A encomenda (entrega 3 do MVP): as duas formas de retirada passam pelas Rules do KMP, com o evento. */
+    const paraOutra = encomenda('NVG-ENC0M1', {
+      tipoVolume: 'CAIXA',
+      quantidadeVolumes: 3,
+      complemento: 'mantimentos',
+      faixaPeso: 'DE_5_A_20',
+      retirada: 'OUTRA_PESSOA',
+      destinatario: { nome: 'João Lima', telefone: '(96) 98888-7777' },
+      cliente: { nome: 'Maria' },
+    })
+    expect(await repositorio.criar(paraOutra)).toEqual({ caso: 'GRAVADA' })
+    expect((await banco.doc('reservas/NVG-ENC0M1').get()).data()).toMatchObject({
+      categoria: 'ENCOMENDA',
+      destinatario: { nome: 'João Lima', telefone: '5596988887777' },
+    })
+    expect((await banco.doc('eventos/reserva.criada:NVG-ENC0M1').get()).exists).toBe(true)
+
+    const doProprio = encomenda('NVG-ENC0M2', {
+      tipoVolume: 'SACO_FARDO',
+      quantidadeVolumes: 1,
+      faixaPeso: 'ATE_5',
+      retirada: 'REMETENTE',
+      cliente: { nome: 'Carlos', telefone: '(91) 98888-1234' },
+    })
+    expect(await repositorio.criar(doProprio)).toEqual({ caso: 'GRAVADA' })
+
+    /* E o que o domínio não monta, as Rules também recusam: quem manda e retira, sem celular. */
+    expect((await repositorio.criar({ ...doProprio, codigo: 'NVG-ENC0M3', cliente: { nome: 'Carlos' } })).caso).toBe('FALHA')
+    expect((await banco.doc('reservas/NVG-ENC0M3').get()).exists).toBe(false)
   }, 30_000)
 })

@@ -309,3 +309,72 @@ describe('a montagem', () => {
     expect(await resposta.json()).toEqual({ erro: 'FALHA_INTERNA', mensagem: 'Falha interna' })
   })
 })
+
+describe('a reserva de encomenda', () => {
+  const ENVIO = {
+    viagemId: 'v-quarta',
+    data: '2026-10-14',
+    encomenda: {
+      tipoVolume: 'CAIXA',
+      quantidadeVolumes: 3,
+      complemento: 'mantimentos',
+      faixaPeso: 'DE_5_A_20',
+      retirada: 'OUTRA_PESSOA',
+      destinatario: { nome: 'João Lima', telefone: '(96) 98888-7777' },
+      cliente: { nome: 'Maria Souza' },
+    },
+    desafio: 'token-bom',
+  } satisfies PedidoDeReservaJson
+
+  it('toda saída ofertada aceita encomenda: 201, gravada com as chaves da encomenda e nenhuma da passagem', async () => {
+    const { cena, enviar } = montar()
+    const resposta = await enviar(ENVIO)
+    expect(resposta.status).toBe(201)
+
+    const { codigo, reserva } = (await resposta.json()) as { codigo: string; reserva: ReservaDocumento }
+    expect(cena.banco.documentos.get(codigo)).toEqual(reserva)
+    expect(reserva).toEqual({
+      categoria: 'ENCOMENDA',
+      status: 'RESERVADA',
+      viagemId: 'v-quarta',
+      data: '2026-10-14',
+      origem: 'TOTEM_WEB',
+      criadoEm: '2026-10-13T08:00:00',
+      expiraEm: '2026-10-14T18:00:00',
+      cliente: { nome: 'Maria Souza' },
+      agenciaId: 'empresa-naveg',
+      tipoVolume: 'CAIXA',
+      quantidadeVolumes: 3,
+      complemento: 'mantimentos',
+      faixaPeso: 'DE_5_A_20',
+      retirada: 'OUTRA_PESSOA',
+      destinatario: { nome: 'João Lima', telefone: '5596988887777' },
+    })
+    expect(paraDominio(codigo, reserva)?.categoria).toBe('ENCOMENDA')
+  })
+
+  it('quem manda e retira sem celular: 422 — o passo de quem manda não fica respondido', async () => {
+    const resposta = await montar().enviar({
+      ...ENVIO,
+      encomenda: { ...ENVIO.encomenda, retirada: 'REMETENTE', destinatario: undefined, cliente: { nome: 'Carlos' } },
+    })
+    expect(resposta.status).toBe(422)
+    expect(await resposta.json()).toMatchObject({ erro: 'RESERVA_INCOMPLETA' })
+  })
+
+  it('fora das listas, acima de 20 volumes, ou com as respostas da passagem junto: 400', async () => {
+    const { cena, enviar } = montar()
+    for (const torto of [
+      { ...ENVIO, encomenda: { ...ENVIO.encomenda, tipoVolume: 'CONTAINER' } },
+      { ...ENVIO, encomenda: { ...ENVIO.encomenda, quantidadeVolumes: 21 } },
+      { ...ENVIO, respostas: PEDIDO.respostas },
+    ]) {
+      expect((await enviar(torto)).status, JSON.stringify(torto)).toBe(400)
+    }
+    expect(cena.banco.documentos.size).toBe(0)
+  })
+
+  it('a saída que não está ofertada: 409, como na passagem', async () => {
+    expect((await montar().enviar({ ...ENVIO, viagemId: 'v-terca-cedo', data: '2026-10-13' })).status).toBe(409)
+  })
+})

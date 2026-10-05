@@ -1,6 +1,10 @@
 /**
  * **`POST /reservas`** — a reserva gravada, e a única escrita da API.
  *
+ * Dois pedidos, uma rota: a passagem do totem (`respostas`) e a encomenda da seção "Envie sua encomenda"
+ * (`encomenda`) — o `pedidoDeReservaDoJson` do domínio diz qual é. Toda saída ofertada aceita encomenda (C7 do
+ * plano da encomenda), então as conferências são as mesmas, e a reserva vai à mesma coleção com o mesmo evento.
+ *
  * O corpo é **só o que a pessoa pode afirmar**: a ocorrência, as respostas e o desafio. Todo o resto — a
  * embarcação, a partida, o código, o instante — é derivado aqui, do catálogo ao vivo e do relógio do servidor.
  * A ordem das conferências é a do custo, da mais barata à mais cara, para que o abuso pare cedo:
@@ -13,7 +17,7 @@
  * 5. **o desafio**, conferido na Cloudflare → `403 DESAFIO_INVALIDO`;
  * 6. **a travessia**, procurada entre as **ofertadas agora** no catálogo recortado. Inativa, fora da concessão
  *    ou já partida → `409 TRAVESSIA_INDISPONIVEL`;
- * 7. **a montagem e a gravação** — o `enviarReserva` do domínio, o mesmo que o totem usava em memória, com a
+ * 7. **a montagem e a gravação** — o `enviarReserva` (ou o `enviarEncomenda`) do domínio, o mesmo que o totem usava em memória, com a
  *    porta do Firestore. Incompleta ou incoerente → `422`, com as pendências tipadas.
  *
  * `201 { codigo, reserva }`: o código **do servidor**, e o documento como foi gravado — o totem o lê com o
@@ -23,6 +27,7 @@ import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 
 import {
+  enviarEncomenda,
   enviarReserva,
   InstanteLocal,
   paraDocumento,
@@ -123,14 +128,17 @@ export function rotaDeReservas(contexto: ContextoDaRota): Hono {
         throw new ErroDaApi(409, 'TRAVESSIA_INDISPONIVEL', 'A travessia não está sendo ofertada')
       }
 
-      /* 7 · a montagem e a gravação. */
-      const resultado = await enviarReserva({
-        respostas: pedido.respostas,
+      /* 7 · a montagem e a gravação — de passagem ou de encomenda, pelo que o pedido é. */
+      const comum = {
         contexto: travessia.contexto,
         criadoEm: agora,
         repositorio: envio.repositorio,
         agenciaId: contexto.agenciaId,
-      })
+      }
+      const resultado =
+        pedido.caso === 'ENCOMENDA'
+          ? await enviarEncomenda({ ...comum, respostas: pedido.encomenda })
+          : await enviarReserva({ ...comum, respostas: pedido.respostas })
       switch (resultado.caso) {
         case 'ENVIADA': {
           console.info(`reserva ${resultado.reserva.codigo} gravada`)
