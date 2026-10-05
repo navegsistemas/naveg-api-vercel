@@ -65,7 +65,7 @@ jobs:
           node-version: 22
           cache: npm
       # O emulador do Firebase é Java.
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 21
