@@ -219,6 +219,15 @@ O corpo é **só o que o cliente pode afirmar**:
 { "viagemId": "…", "data": "2026-10-14", "respostas": { }, "desafio": "token do Turnstile" }
 ```
 
+ou, para a **reserva de encomenda** (a seção "Envie sua encomenda" do site, desde o domínio 0.6.0), `encomenda`
+no lugar de `respostas` — o tipo do volume, a quantidade (1 a 20), o complemento, a faixa de peso, quem retira,
+o destinatário e quem manda. As duas chaves juntas são `400`. Toda saída ofertada aceita encomenda (C7 do plano
+da encomenda), e ela é gravada em `reservas` com `categoria: ENCOMENDA` e o mesmo `reserva.criada`:
+
+```json
+{ "viagemId": "…", "data": "2026-10-14", "encomenda": { }, "desafio": "token do Turnstile" }
+```
+
 O servidor deriva o resto e **não confia em mais nada**. As conferências vão da mais barata à mais cara:
 
 1. **a origem** tem de estar em `ORIGENS_PERMITIDAS` → `403 ORIGEM_NAO_PERMITIDA`;
@@ -228,7 +237,7 @@ O servidor deriva o resto e **não confia em mais nada**. As conferências vão 
 5. **o desafio**, no `siteverify` da Cloudflare, com a ação `reserva` → `403 DESAFIO_INVALIDO`;
 6. **a travessia** `viagemId@data` entre as **ofertadas agora**, no catálogo recortado (guardado um minuto na
    instância). Inativa, fora da concessão ou já partida → `409 TRAVESSIA_INDISPONIVEL`;
-7. **a montagem e a gravação**: o `enviarReserva` do domínio, com **código e instante do servidor** e
+7. **a montagem e a gravação**: o `enviarReserva` (ou o `enviarEncomenda`) do domínio, com **código e instante do servidor** e
    `create` no Firestore — documento existente gera outro código, até cinco vezes. Incompleta ou incoerente →
    `422`, com as pendências tipadas. `codigo`, `criadoEm`, `status`, `agenciaId` e `observacao` mandados no
    corpo são ignorados.

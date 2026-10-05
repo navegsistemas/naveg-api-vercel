@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",
-    "@navegsistemas/domain": "^0.5.0",
+    "@navegsistemas/domain": "^0.6.0",
     "firebase": "^12.19.0",
     "firebase-admin": "^14.4.0",
     "hono": "^4.6.0"
@@ -26,5 +26,11 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "overrides": {
+    "@firebase/firestore": {
+      "@grpc/grpc-js": "^1.14.5"
+    },
+    "uuid": "^11.1.1"
   }
 }
