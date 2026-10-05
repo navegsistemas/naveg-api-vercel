@@ -26,5 +26,11 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "overrides": {
+    "@firebase/firestore": {
+      "@grpc/grpc-js": "^1.14.5"
+    },
+    "uuid": "^11.1.1"
   }
 }
