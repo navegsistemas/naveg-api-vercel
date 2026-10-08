@@ -44,7 +44,7 @@ obrigatório mesmo assim (plano gratuito, Redis, a URL e o token REST).
 
 **Decisões tomadas no passo 2, para confirmar** (todas com cenário, fáceis de mudar):
 
-- **limite de 10 envios por IP a cada 10 minutos**; se o Upstash cair, **deixa passar** (e registra) — o
+- **limite de 20 envios por IP a cada 10 minutos** (era 10; o PO subiu em 2026-10-08); se o Upstash cair, **deixa passar** (e registra) — o
   Turnstile continua de pé, e recusar todo mundo seria pior;
 - **nome até 100 caracteres**, telefone até 30; a **observação é ignorada** (o totem não tem o campo);
 - a reserva é gravada com `agenciaId` = `NAVEG_EMPRESA_ID`;

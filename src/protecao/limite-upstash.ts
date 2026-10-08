@@ -21,8 +21,12 @@ export interface RegraDoLimite {
   readonly janelaEmSegundos: number
 }
 
-/** Dez reservas em dez minutos por IP: mais do que uma família no mesmo Wi-Fi faz, menos do que um script quer. */
-export const LIMITE_PADRAO: RegraDoLimite = { teto: 10, janelaEmSegundos: 600 }
+/**
+ * Vinte reservas em dez minutos por IP: mais do que uma família no mesmo Wi-Fi faz, menos do que um script quer.
+ * Era dez; subiu para vinte por decisão do PO (2026-10-08), porque um IP pode ser muita gente — o quiosque, o
+ * Wi-Fi de um porto, uma operadora móvel com milhares de celulares atrás do mesmo endereço.
+ */
+export const LIMITE_PADRAO: RegraDoLimite = { teto: 20, janelaEmSegundos: 600 }
 
 export function limiteNoUpstash(
   url: string,
