@@ -15,3 +15,6 @@ Thumbs.db
 
 # log do emulador (npm run test:emulador)
 firestore-debug.log
+
+# O Claude Code: o que é de cada máquina (permissões locais). O CLAUDE.md e .claude/skills/ são do projeto.
+.claude/settings.local.json
