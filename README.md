@@ -20,6 +20,11 @@ Os passos 1 e 2 são os passos **9 e 10** do
 
 ## Retomar daqui
 
+**2026-10-09: a `main` está à frente da homologação.** A homologação segue no deploy do #17 (a reserva de
+encomenda). A próxima promoção leva junto o Hono 2 (#20), o Vitest 5 e o limite de 20 reservas por IP (#22):
+logo depois, conferir o catálogo e uma reserva gravada, com `vercel rollback` à mão (skill
+`promover-homologacao`; RUNBOOK do front, §5). Promover é do PO.
+
 **Desde 2026-09-23 a API grava sob as Rules do fluviapp** (a P3 do ADR-0010 do `fluviapp-kmp`, desenhada no
 ADR-0013 de lá). A conta de escrita não grava mais: ela **assina um token customizado** para o usuário de serviço
 `naveg-api` (*claims* `papel: SERVICO` e a agência), e a gravação vai pelo SDK cliente, numa transação que
