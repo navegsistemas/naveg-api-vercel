@@ -11,7 +11,8 @@ Levar a ele o que muda produto, prazo, custo, risco ou dado pessoal, com recomen
 
 ## Onde mora o estado
 
-- o **"Retomar daqui"** do [README](README.md) — o que está no ar, o que espera promoção;
+- a **issue fixada "Onde paramos"** (rótulo `onde-paramos`) — o que está no ar, o que espera promoção. Uma issue, e
+  não um arquivo, para não pedir PR a cada atualização (PO, 2026-10-11); a do front também vale;
 - o plano, que é um só para front e API: `../naveg-front/docs/plano-de-implementacao.md` (os passos 9 e 10 são
   os 1 e 2 daqui);
 - a operação: `../naveg-front/docs/RUNBOOK.md` (§5: promover e voltar atrás).
