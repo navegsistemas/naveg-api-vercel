@@ -30,5 +30,5 @@ Entregar ao PO: o comando (`vercel promote <url do deploy do merge>`), a lista d
 
 ## Ao fim
 
-Atualizar o "Retomar daqui" da API (o deploy que está na homologação agora) e tirar o "atenção na próxima
-promoção" do RUNBOOK §5 do front — num PR em cada repositório.
+Reescrever a issue "Onde paramos" da API (o deploy que está na homologação agora; skill `salvar-onde-paramos`,
+sem PR) e tirar o "atenção na próxima promoção" do RUNBOOK §5 do front, num PR de lá.
