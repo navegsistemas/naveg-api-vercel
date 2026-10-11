@@ -28,15 +28,30 @@ const EMULADOR = FIRESTORE !== undefined && AUTH !== undefined
 const PROJETO = 'demo-fluviapp'
 const AGENCIA = 'empresa-naveg'
 
-function reserva(codigo: string, agenciaId = AGENCIA): Reserva {
+/* Desde o fluviapp-kmp#44 (ADR-0019 de lá), a regra de `reservas` confere a saída: a viagem existe e está ativa,
+   a data cai no dia da semana dela, entre hoje em Belém (UTC−3) e o fim do alcance (encomenda, 7 dias), e não
+   está suspensa. Por isso a data é contada a partir de hoje, e a viagem é gravada antes, pelo admin. */
+function diasDepoisDeHoje(dias: number): Date {
+  const hojeEmBelem = new Date(Date.now() - 3 * 3_600_000)
+  return new Date(Date.UTC(hojeEmBelem.getUTCFullYear(), hojeEmBelem.getUTCMonth(), hojeEmBelem.getUTCDate() + dias))
+}
+const DIAS_DA_SEMANA = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'] as const
+const SAIDA = diasDepoisDeHoje(3)
+const DATA = SAIDA.toISOString().slice(0, 10)
+const VESPERA = diasDepoisDeHoje(2).toISOString().slice(0, 10)
+const VIAGEM = { ativo: true, diaSemana: DIAS_DA_SEMANA[SAIDA.getUTCDay()] }
+
+const saida = (viagemId = 'v') => ({
+  ocorrencia: { viagemId, data: DataCalendario.de(DATA) as DataCalendario },
+  tipoEmbarcacao: 'FERRY_BOAT' as const,
+  partida: InstanteLocal.de(`${DATA}T18:00`) as InstanteLocal,
+})
+
+function reserva(codigo: string, agenciaId = AGENCIA, viagemId = 'v'): Reserva {
   const montagem = montarReserva(
     { categoria: 'PASSAGEIRO', acomodacao: 'REDE', tipo: 'INTEIRA', cliente: { nome: 'Maria' } },
-    {
-      ocorrencia: { viagemId: 'v', data: DataCalendario.de('2026-10-14') as DataCalendario },
-      tipoEmbarcacao: 'FERRY_BOAT',
-      partida: InstanteLocal.de('2026-10-14T18:00') as InstanteLocal,
-    },
-    { codigo, criadoEm: InstanteLocal.de('2026-10-13T08:00') as InstanteLocal },
+    saida(viagemId),
+    { codigo, criadoEm: InstanteLocal.de(`${VESPERA}T08:00`) as InstanteLocal },
   )
   if (montagem.caso !== 'OK') throw new Error('exemplo incoerente')
   return { ...montagem.reserva, agenciaId }
@@ -46,12 +61,8 @@ function reserva(codigo: string, agenciaId = AGENCIA): Reserva {
 function encomenda(codigo: string, respostas: RespostasDaEncomenda): Reserva {
   const montagem = montarEncomenda(
     respostas,
-    {
-      ocorrencia: { viagemId: 'v', data: DataCalendario.de('2026-10-14') as DataCalendario },
-      tipoEmbarcacao: 'FERRY_BOAT',
-      partida: InstanteLocal.de('2026-10-14T18:00') as InstanteLocal,
-    },
-    { codigo, criadoEm: InstanteLocal.de('2026-10-13T08:00') as InstanteLocal, agenciaId: AGENCIA },
+    saida(),
+    { codigo, criadoEm: InstanteLocal.de(`${VESPERA}T08:00`) as InstanteLocal, agenciaId: AGENCIA },
   )
   if (montagem.caso !== 'OK') throw new Error('exemplo incoerente')
   return montagem.reserva
@@ -82,6 +93,9 @@ describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PU
     })
     const repositorio = reservaNoFirestore(loteNoFirestore(obter), UID_DO_SERVICO)
     const banco = firestoreDoAdmin(admin)
+    await banco.doc('viagens/v').set(VIAGEM)
+    await banco.doc('viagens/v-suspensa').set(VIAGEM)
+    await banco.doc(`suspensoes/v-suspensa@${DATA}`).set({ viagemId: 'v-suspensa', data: DATA, motivo: 'docagem' })
 
     expect(await repositorio.criar(reserva('NVG-7K3QP2'))).toEqual({ caso: 'GRAVADA' })
     expect((await banco.doc('reservas/NVG-7K3QP2').get()).data()).toMatchObject({ status: 'RESERVADA', agenciaId: AGENCIA })
@@ -93,6 +107,13 @@ describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PU
        prova de que o emulador subiu **com** as Rules: sem elas, ele aceita tudo, e este passo falha. */
     expect((await repositorio.criar(reserva('NVG-7K3QP3', 'outra-agencia'))).caso).toBe('FALHA')
     expect((await banco.doc('reservas/NVG-7K3QP3').get()).exists).toBe(false)
+
+    /* A saída suspensa e a viagem que não existe: a regra recusa (fluviapp-kmp#44). Hoje a API ainda não confere
+       antes de gravar, e o pedido cai como FALHA; a mensagem própria vem com a naveg-front#51. */
+    expect((await repositorio.criar(reserva('NVG-7K3QP4', AGENCIA, 'v-suspensa'))).caso).toBe('FALHA')
+    expect((await banco.doc('reservas/NVG-7K3QP4').get()).exists).toBe(false)
+    expect((await repositorio.criar(reserva('NVG-7K3QP5', AGENCIA, 'nao-existe'))).caso).toBe('FALHA')
+    expect((await banco.doc('reservas/NVG-7K3QP5').get()).exists).toBe(false)
 
     /* A encomenda (entrega 3 do MVP): as duas formas de retirada passam pelas Rules do KMP, com o evento. */
     const paraOutra = encomenda('NVG-ENC0M1', {
