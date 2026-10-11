@@ -15,8 +15,9 @@
  * 3. **o corpo** — até 16 kB, JSON, na forma estrita do domínio → `413`/`400 CORPO_INVALIDO`;
  * 4. **o limite por IP** → `429 LIMITE_EXCEDIDO`;
  * 5. **o desafio**, conferido na Cloudflare → `403 DESAFIO_INVALIDO`;
- * 6. **a travessia**, procurada entre as **ofertadas agora** no catálogo recortado. Inativa, fora da concessão
- *    ou já partida → `409 TRAVESSIA_INDISPONIVEL`;
+ * 6. **a travessia**, procurada entre as **ofertadas agora** no catálogo recortado, no alcance da categoria (90
+ *    dias; a encomenda, 7). Inativa, fora da concessão, já partida, além do alcance ou suspensa →
+ *    `409 TRAVESSIA_INDISPONIVEL`;
  * 7. **a montagem e a gravação** — o `enviarReserva` (ou o `enviarEncomenda`) do domínio, o mesmo que o totem usava em memória, com a
  *    porta do Firestore. Incompleta ou incoerente → `422`, com as pendências tipadas.
  *
@@ -27,6 +28,7 @@ import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 
 import {
+  alcanceEmDias,
   enviarEncomenda,
   enviarReserva,
   InstanteLocal,
@@ -123,7 +125,13 @@ export function rotaDeReservas(contexto: ContextoDaRota): Hono {
       }
       const agora = InstanteLocal.emFuso(contexto.relogio(), FUSO_DA_OPERACAO)
       const id = `${pedido.ocorrencia.viagemId}@${pedido.ocorrencia.data}`
-      const travessia = travessiasOfertadas(recortarPelaConcessao(catalogo), agora).find((t) => t.id === id)
+      /* O alcance é o da categoria (fluviapp-kmp#44): a encomenda na semana, a passagem em 90 dias. Sem categoria,
+         a passagem não monta (422 adiante); o alcance maior só deixa a conferência para a montagem. A saída
+         suspensa não é ofertada, e cai aqui, com a mensagem — antes de a regra do servidor recusar. */
+      const categoria = pedido.caso === 'ENCOMENDA' ? 'ENCOMENDA' : (pedido.respostas.categoria ?? 'PASSAGEIRO')
+      const travessia = travessiasOfertadas(recortarPelaConcessao(catalogo), agora, alcanceEmDias(categoria)).find(
+        (t) => t.id === id,
+      )
       if (travessia === undefined) {
         throw new ErroDaApi(409, 'TRAVESSIA_INDISPONIVEL', 'A travessia não está sendo ofertada')
       }

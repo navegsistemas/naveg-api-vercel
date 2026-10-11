@@ -1,7 +1,8 @@
 /**
  * **O catálogo lido do Firestore** — o adaptador de `LeitorDoCatalogo`.
  *
- * Lê as cinco coleções do catálogo e a concessão da NAVEG, e decodifica cada documento com o
+ * Lê as cinco coleções do catálogo, a concessão da NAVEG e as saídas suspensas (`suspensoes`, fluviapp-kmp#44 —
+ * poucas, um punhado por feriado), e decodifica cada documento com o
  * `@navegsistemas/domain` — os mesmos `xDoDocumento` que leem como o aplicativo lê. Nenhuma regra mora aqui: o
  * adaptador busca e entrega; o recorte é da rota, e a regra é do domínio.
  *
@@ -26,6 +27,7 @@ import {
   localidadeDoDocumento,
   portoDoDocumento,
   rotaDoDocumento,
+  suspensaoDoDocumento,
   viagemDoDocumento,
 } from '@navegsistemas/domain'
 
@@ -57,13 +59,14 @@ export function catalogoDoFirestore(db: FirestoreDeLeitura, empresaId: string): 
 
   return {
     async ler() {
-      const [viagens, rotas, portos, localidades, embarcacoes, concessao] = await Promise.all([
+      const [viagens, rotas, portos, localidades, embarcacoes, concessao, suspensoes] = await Promise.all([
         db.collection(COLECOES_DO_FLUVIAPP.viagens).get(),
         db.collection(COLECOES_DO_FLUVIAPP.rotas).get(),
         db.collection(COLECOES_DO_FLUVIAPP.portos).get(),
         db.collection(COLECOES_DO_FLUVIAPP.localidades).get(),
         db.collection(COLECOES_DO_FLUVIAPP.embarcacoes).get(),
         db.doc(caminhoDaConcessao).get(),
+        db.collection(COLECOES_DO_FLUVIAPP.suspensoes).get(),
       ])
 
       return {
@@ -73,6 +76,7 @@ export function catalogoDoFirestore(db: FirestoreDeLeitura, empresaId: string): 
         localidades: decodificar(localidades.docs, localidadeDoDocumento),
         embarcacoes: decodificar(embarcacoes.docs, embarcacaoDoDocumento),
         atuacao: concessao.exists ? atuacaoDoDocumento(concessao.data()) : null,
+        suspensas: decodificar(suspensoes.docs, suspensaoDoDocumento),
       }
     },
   }

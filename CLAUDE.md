@@ -43,7 +43,10 @@ As skills `retomar`, `salvar-onde-paramos`, `secao-de-ui` e `preparar-maquina` e
 - **Vitest pelo PowerShell**; pelo Git Bash com cwd `/c/...` quebra.
 - `npm run test:emulador` lê as Rules do checkout do KMP (`FLUVIAPP_KMP`, padrão
   `~/AndroidStudioProjects/fluviapp-kmp`) e pede Java 17 no PATH. Não mexer no checkout do KMP: ele pode estar
-  num branch em andamento.
+  num branch em andamento. Para as Rules do `master` sem tocar nele: baixar o `firestore.rules` pelo `gh api` para
+  uma pasta temporária e apontar `FLUVIAPP_KMP` para ela.
+- **No Windows, o `test:emulador` deixa o Java do emulador vivo na porta 8080**, e a rodada seguinte dá "port
+  taken". Parar só esse processo (a linha de comando dele tem `demo-fluviapp`), nunca todos os `java`.
 - O `vercel link` acrescenta `.env*` ao `.gitignore` — desfazer (a regra daqui já cobre e mantém o `!.env.example`).
 - Arquivos em CRLF: troca multilinha por script falha; usar a ferramenta de edição.
 - Pendência de outro repositório vira **issue lá**, não nota aqui.

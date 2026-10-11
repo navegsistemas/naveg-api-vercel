@@ -12,6 +12,7 @@ import {
   catalogoParaJson,
   recortarPelaConcessao,
   type CatalogoDoFluviapp,
+  type DataCalendario,
 } from '@navegsistemas/domain'
 
 import { criarApp } from '../src/app.js'
@@ -60,6 +61,11 @@ const POOL: CatalogoDoFluviapp = {
     { id: 'v-embarcacao-some', rotaId: 'r-ida', embarcacaoId: 'e-apagada', diaSemana: 'TUESDAY', horaMin: 1080, ativo: true },
   ],
   atuacao: { embarcacaoIds: new Set(['e-ferry', 'e-apagada']), portoIds: new Set(['p-bel', 'p-sou']) },
+  /* Uma da viagem que se vende, e uma de viagem alheia — que não sai do servidor. */
+  suspensas: [
+    { viagemId: 'v-vende', data: '2026-10-21' as DataCalendario },
+    { viagemId: 'v-nao-concedida', data: '2026-10-19' as DataCalendario },
+  ],
 }
 
 const lendo = (catalogo: CatalogoDoFluviapp): LeitorDoCatalogo => ({ ler: async () => catalogo })
@@ -79,6 +85,8 @@ describe('GET /catalogo', () => {
     const lido = catalogoDoJson(corpo)
     expect(lido?.viagens.map((v) => v.id)).toEqual(['v-vende'])
     expect(lido?.atuacao?.embarcacaoIds.has('e-ferry')).toBe(true)
+    /* A saída suspensa vai junto, para o calendário não acender a data (fluviapp-kmp#44). */
+    expect(lido?.suspensas).toEqual([{ viagemId: 'v-vende', data: '2026-10-21' }])
   })
 
   it('o que a concessão não cobre não sai — nem rota inativa, nem embarcação que não resolve, nem o pool alheio', async () => {
@@ -168,13 +176,25 @@ describe('o adaptador do Firestore', () => {
     portos: { 'p-1': { nome: 'Cais', localidadeId: 'l-1' }, 'p-2': { nome: 'Trapiche', localidadeId: 'l-1' } },
     localidades: { 'l-1': { municipio: 'Belém', uf: 'PA' } },
     embarcacoes: { 'e-1': { nome: 'Lancha', tipo: 'LANCHA' }, 'e-sem-tipo': { nome: 'Sem tipo' } },
+    suspensoes: {
+      'v-1@2026-10-21': { viagemId: 'v-1', data: '2026-10-21', empresaId: 'x', motivo: 'Círio', porId: 'u', em: '' },
+      'sem-viagem': { data: '2026-10-21', motivo: 'torta' },
+    },
   }
   const CONCESSAO = 'empresas/empresa-naveg/atuacoes/AGENCIAMENTO'
 
-  it('lê as cinco coleções e a concessão da empresa configurada', async () => {
+  it('lê as cinco coleções, as suspensões e a concessão da empresa configurada', async () => {
     const { db, pedidos } = firestore(COLECOES, { [CONCESSAO]: { embarcacaoIds: ['e-1'], portoIds: ['p-1', 'p-2'] } })
     await catalogoDoFirestore(db, 'empresa-naveg').ler()
-    expect([...pedidos].sort()).toEqual([CONCESSAO, 'embarcacoes', 'localidades', 'portos', 'rotas', 'viagens'].sort())
+    expect([...pedidos].sort()).toEqual(
+      [CONCESSAO, 'embarcacoes', 'localidades', 'portos', 'rotas', 'suspensoes', 'viagens'].sort(),
+    )
+  })
+
+  it('a suspensão entra só com a ocorrência — o motivo e quem suspendeu ficam no banco', async () => {
+    const { db } = firestore(COLECOES, { [CONCESSAO]: { embarcacaoIds: ['e-1'], portoIds: ['p-1', 'p-2'] } })
+    const catalogo = await catalogoDoFirestore(db, 'empresa-naveg').ler()
+    expect(catalogo.suspensas).toEqual([{ viagemId: 'v-1', data: '2026-10-21' }])
   })
 
   it('decodifica como o aplicativo: o documento que o aplicativo recusa não entra', async () => {
