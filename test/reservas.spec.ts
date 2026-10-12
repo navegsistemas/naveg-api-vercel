@@ -11,6 +11,7 @@ import {
   codigoValido,
   paraDominio,
   type CatalogoDoFluviapp,
+  type DataCalendario,
   type PedidoDeReservaJson,
   type Reserva,
   type ReservaDocumento,
@@ -59,6 +60,8 @@ const CATALOGO: CatalogoDoFluviapp = {
     { id: 'v-fora', rotaId: 'r-fora', embarcacaoId: 'e', diaSemana: 'WEDNESDAY', horaMin: 18 * 60, ativo: true },
   ],
   atuacao: { embarcacaoIds: new Set(['e']), portoIds: new Set(['p-a', 'p-b']) },
+  /* A quarta de 28/10 não sai (fluviapp-kmp#44): feriado, docagem. As outras quartas seguem. */
+  suspensas: [{ viagemId: 'v-quarta', data: '2026-10-28' as DataCalendario }],
 }
 
 const PEDIDO: PedidoDeReservaJson = {
@@ -269,12 +272,22 @@ describe('a travessia, contra o catálogo ao vivo', () => {
       ['v-fora', '2026-10-14'],
       ['v-que-nao-existe', '2026-10-14'],
       ['v-quarta', '2026-10-15'],
-      ['v-quarta', '2026-12-30'],
+      /* A quarta 92 dias depois: além do alcance de 90. */
+      ['v-quarta', '2027-01-13'],
+      /* A suspensa: 409 com a mensagem, antes de a regra do servidor recusar. */
+      ['v-quarta', '2026-10-28'],
     ] as const) {
       const resposta = await enviar({ ...PEDIDO, viagemId, data })
       expect(resposta.status, `${viagemId}@${data}`).toBe(409)
     }
     expect(cena.banco.documentos.size).toBe(0)
+  })
+
+  it('a passagem vai a 90 dias (fluviapp-kmp#44): a quarta daqui a oito semanas grava', async () => {
+    const { cena, enviar } = montar()
+    expect((await enviar({ ...PEDIDO, data: '2026-12-09' })).status).toBe(201)
+    expect((await enviar({ ...PEDIDO, data: '2026-10-21' })).status).toBe(201)
+    expect(cena.banco.documentos.size).toBe(2)
   })
 
   it('sem concessão: 500, e nada gravado', async () => {
@@ -376,5 +389,11 @@ describe('a reserva de encomenda', () => {
 
   it('a saída que não está ofertada: 409, como na passagem', async () => {
     expect((await montar().enviar({ ...ENVIO, viagemId: 'v-terca-cedo', data: '2026-10-13' })).status).toBe(409)
+  })
+
+  it('a encomenda fica na semana: a quarta seguinte é 409, onde a passagem grava', async () => {
+    const { cena, enviar } = montar()
+    expect((await enviar({ ...ENVIO, data: '2026-10-21' })).status).toBe(409)
+    expect(cena.banco.documentos.size).toBe(0)
   })
 })

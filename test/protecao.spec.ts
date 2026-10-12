@@ -216,7 +216,15 @@ describe('o IP', () => {
 })
 
 describe('o catálogo guardado por um minuto', () => {
-  const CATALOGO = { viagens: [], rotas: [], portos: [], localidades: [], embarcacoes: [], atuacao: null } as CatalogoDoFluviapp
+  const CATALOGO: CatalogoDoFluviapp = {
+    viagens: [],
+    rotas: [],
+    portos: [],
+    localidades: [],
+    embarcacoes: [],
+    atuacao: null,
+    suspensas: [],
+  }
 
   it('lê uma vez por minuto, e de novo depois', async () => {
     let leituras = 0

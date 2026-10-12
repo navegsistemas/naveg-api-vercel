@@ -108,8 +108,8 @@ describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PU
     expect((await repositorio.criar(reserva('NVG-7K3QP3', 'outra-agencia'))).caso).toBe('FALHA')
     expect((await banco.doc('reservas/NVG-7K3QP3').get()).exists).toBe(false)
 
-    /* A saída suspensa e a viagem que não existe: a regra recusa (fluviapp-kmp#44). Hoje a API ainda não confere
-       antes de gravar, e o pedido cai como FALHA; a mensagem própria vem com a naveg-front#51. */
+    /* A saída suspensa e a viagem que não existe: a regra recusa (fluviapp-kmp#44). A rota recusa antes, com 409
+       e a mensagem (`reservas.spec.ts`); aqui, sem a rota, é a regra que segura — o piso que vale com a API errada. */
     expect((await repositorio.criar(reserva('NVG-7K3QP4', AGENCIA, 'v-suspensa'))).caso).toBe('FALHA')
     expect((await banco.doc('reservas/NVG-7K3QP4').get()).exists).toBe(false)
     expect((await repositorio.criar(reserva('NVG-7K3QP5', AGENCIA, 'nao-existe'))).caso).toBe('FALHA')
