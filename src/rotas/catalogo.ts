@@ -32,7 +32,9 @@ export function resumoDaLeitura(pool: CatalogoDoFluviapp, recortado: CatalogoDoF
   return [
     `catálogo lido — pool: ${pool.viagens.length} viagens (${pool.viagens.filter((v) => v.ativo).length} ativas),`,
     `${pool.rotas.length} rotas (${pool.rotas.filter((r) => r.ativo).length} ativas), ${pool.portos.length} portos,`,
-    `${pool.embarcacoes.length} embarcações;`,
+    `${pool.embarcacoes.length} embarcações, ${pool.alteracoes.length} datas alteradas;`,
+    /* A viagem sem cais é a que a migração da rota geográfica não alcançou (fluviapp-kmp#51): a concessão não a cobre. */
+    `viagens ativas sem cais: ${pool.viagens.filter((v) => v.ativo && (v.portoEmbarqueId.trim() === '' || v.portoDesembarqueId.trim() === '')).length};`,
     `concessão: ${concessao?.embarcacaoIds.size ?? 0} embarcações e ${concessao?.portoIds.size ?? 0} portos;`,
     `ofertável depois do recorte: ${recortado.viagens.length} viagens`,
   ].join(' ')

@@ -37,16 +37,22 @@ const CONFIG: Config = {
   protecaoDoEnvio: null,
 }
 
+/* O cais é da viagem (fluviapp-kmp#51). */
+const A_B = { portoEmbarqueId: 'p-a', portoDesembarqueId: 'p-b' }
+
 const CATALOGO: CatalogoDoFluviapp = {
-  localidades: [{ id: 'bel', municipio: 'Belém', uf: 'PA', codigoIbge: '1501402', ativo: true }],
+  localidades: [
+    { id: 'bel', municipio: 'Belém', uf: 'PA', codigoIbge: '1501402', ativo: true },
+    { id: 'sou', municipio: 'Soure', uf: 'PA', codigoIbge: '1507904', ativo: true },
+  ],
   portos: [
     { id: 'p-a', nome: 'Terminal', localidadeId: 'bel', ativo: true },
     { id: 'p-b', nome: 'Cais', localidadeId: 'bel', ativo: true },
     { id: 'p-fora', nome: 'Fora', localidadeId: 'bel', ativo: true },
   ],
   rotas: [
-    { id: 'r', portoOrigemId: 'p-a', portoDestinoId: 'p-b', distanciaMn: 10, tempoMedioH: 2, ativo: true },
-    { id: 'r-fora', portoOrigemId: 'p-a', portoDestinoId: 'p-fora', distanciaMn: 10, tempoMedioH: 2, ativo: true },
+    { id: 'r', localidadeOrigemId: 'bel', localidadeDestinoId: 'sou', distanciaMn: 10, tempoMedioH: 2, ativo: true },
+    { id: 'r-fora', localidadeOrigemId: 'bel', localidadeDestinoId: 'sou', distanciaMn: 10, tempoMedioH: 2, ativo: true },
   ],
   embarcacoes: [
     {
@@ -55,13 +61,24 @@ const CATALOGO: CatalogoDoFluviapp = {
     },
   ],
   viagens: [
-    { id: 'v-quarta', rotaId: 'r', embarcacaoId: 'e', diaSemana: 'WEDNESDAY', horaMin: 18 * 60, ativo: true },
-    { id: 'v-terca-cedo', rotaId: 'r', embarcacaoId: 'e', diaSemana: 'TUESDAY', horaMin: 7 * 60, ativo: true },
-    { id: 'v-fora', rotaId: 'r-fora', embarcacaoId: 'e', diaSemana: 'WEDNESDAY', horaMin: 18 * 60, ativo: true },
+    { id: 'v-quarta', rotaId: 'r', embarcacaoId: 'e', diaSemana: 'WEDNESDAY', horaMin: 18 * 60, ativo: true, ...A_B },
+    { id: 'v-terca-cedo', rotaId: 'r', embarcacaoId: 'e', diaSemana: 'TUESDAY', horaMin: 7 * 60, ativo: true, ...A_B },
+    { id: 'v-fora', rotaId: 'r-fora', embarcacaoId: 'e', diaSemana: 'WEDNESDAY', horaMin: 18 * 60, ativo: true,
+      portoEmbarqueId: 'p-a', portoDesembarqueId: 'p-fora' },
   ],
   atuacao: { embarcacaoIds: new Set(['e']), portoIds: new Set(['p-a', 'p-b']) },
   /* A quarta de 28/10 não sai (fluviapp-kmp#44): feriado, docagem. As outras quartas seguem. */
   suspensas: [{ viagemId: 'v-quarta', data: '2026-10-28' as DataCalendario }],
+  /* A quarta de 21/10 sai às 19:00 e de outro cais, fora da concessão (fluviapp-kmp#52): continua à venda. */
+  alteracoes: [
+    {
+      ocorrencia: { viagemId: 'v-quarta', data: '2026-10-21' as DataCalendario },
+      portoEmbarqueId: 'p-fora',
+      portoDesembarqueId: 'p-b',
+      horaMin: 19 * 60,
+      motivo: 'Cais em obra',
+    },
+  ],
 }
 
 const PEDIDO: PedidoDeReservaJson = {
@@ -288,6 +305,14 @@ describe('a travessia, contra o catálogo ao vivo', () => {
     expect((await enviar({ ...PEDIDO, data: '2026-12-09' })).status).toBe(201)
     expect((await enviar({ ...PEDIDO, data: '2026-10-21' })).status).toBe(201)
     expect(cena.banco.documentos.size).toBe(2)
+  })
+
+  it('a data alterada (fluviapp-kmp#52) continua reservável, e vale até a partida do dia', async () => {
+    const { enviar } = montar()
+    const resposta = await enviar({ ...PEDIDO, data: '2026-10-21' })
+    expect(resposta.status).toBe(201)
+    const { codigo, reserva } = (await resposta.json()) as { codigo: string; reserva: ReservaDocumento }
+    expect(paraDominio(codigo, reserva)?.expiraEm).toBe('2026-10-21T19:00:00')
   })
 
   it('sem concessão: 500, e nada gravado', async () => {

@@ -224,6 +224,7 @@ describe('o catálogo guardado por um minuto', () => {
     embarcacoes: [],
     atuacao: null,
     suspensas: [],
+    alteracoes: [],
   }
 
   it('lê uma vez por minuto, e de novo depois', async () => {

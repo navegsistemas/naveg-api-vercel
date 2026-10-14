@@ -1,8 +1,9 @@
 /**
  * **O catálogo lido do Firestore** — o adaptador de `LeitorDoCatalogo`.
  *
- * Lê as cinco coleções do catálogo, a concessão da NAVEG e as saídas suspensas (`suspensoes`, fluviapp-kmp#44 —
- * poucas, um punhado por feriado), e decodifica cada documento com o
+ * Lê as cinco coleções do catálogo, a concessão da NAVEG, as saídas suspensas (`suspensoes`, fluviapp-kmp#44 —
+ * poucas, um punhado por feriado) e as alteradas (`alteracoes`, fluviapp-kmp#52 — o cais ou a hora de uma data), e
+ * decodifica cada documento com o
  * `@navegsistemas/domain` — os mesmos `xDoDocumento` que leem como o aplicativo lê. Nenhuma regra mora aqui: o
  * adaptador busca e entrega; o recorte é da rota, e a regra é do domínio.
  *
@@ -20,6 +21,7 @@
  * e a decodificação. O emulador continua sendo o teste de verdade, e é do passo 10.
  */
 import {
+  alteracaoDoDocumento,
   ATUACAO_DA_AGENCIA,
   atuacaoDoDocumento,
   COLECOES_DO_FLUVIAPP,
@@ -59,7 +61,7 @@ export function catalogoDoFirestore(db: FirestoreDeLeitura, empresaId: string): 
 
   return {
     async ler() {
-      const [viagens, rotas, portos, localidades, embarcacoes, concessao, suspensoes] = await Promise.all([
+      const [viagens, rotas, portos, localidades, embarcacoes, concessao, suspensoes, alteracoes] = await Promise.all([
         db.collection(COLECOES_DO_FLUVIAPP.viagens).get(),
         db.collection(COLECOES_DO_FLUVIAPP.rotas).get(),
         db.collection(COLECOES_DO_FLUVIAPP.portos).get(),
@@ -67,6 +69,7 @@ export function catalogoDoFirestore(db: FirestoreDeLeitura, empresaId: string): 
         db.collection(COLECOES_DO_FLUVIAPP.embarcacoes).get(),
         db.doc(caminhoDaConcessao).get(),
         db.collection(COLECOES_DO_FLUVIAPP.suspensoes).get(),
+        db.collection(COLECOES_DO_FLUVIAPP.alteracoes).get(),
       ])
 
       return {
@@ -77,6 +80,7 @@ export function catalogoDoFirestore(db: FirestoreDeLeitura, empresaId: string): 
         embarcacoes: decodificar(embarcacoes.docs, embarcacaoDoDocumento),
         atuacao: concessao.exists ? atuacaoDoDocumento(concessao.data()) : null,
         suspensas: decodificar(suspensoes.docs, suspensaoDoDocumento),
+        alteracoes: decodificar(alteracoes.docs, alteracaoDoDocumento),
       }
     },
   }
