@@ -368,6 +368,43 @@ describe('a montagem', () => {
     expect((await enviar({ ...PEDIDO, respostas: { ...PEDIDO.respostas, canal: 'SITE', quantidadePessoas: 51 } })).status).toBe(400)
   })
 
+  /* naveg-front#66 (fluviapp-kmp#63): o site começa pelo que vai embarcar, e passageiros e veículo é uma reserva só. */
+  it('passageiros e veículo, pelo site: 201, uma reserva de veículo com as pessoas, sem o tipo', async () => {
+    const { cena, enviar } = montar()
+    const resposta = await enviar({
+      ...PEDIDO,
+      respostas: {
+        canal: 'SITE',
+        embarque: 'PASSAGEIROS_E_VEICULO',
+        porteVeiculo: 'PESADO',
+        classeVeiculo: 'CAMINHAO',
+        quantidadePessoas: 3,
+        acomodacao: 'REDE',
+        cliente: PEDIDO.respostas.cliente,
+      },
+    })
+    expect(resposta.status).toBe(201)
+    const { codigo } = (await resposta.json()) as { codigo: string }
+    const gravado = cena.banco.documentos.get(codigo)
+    expect(gravado).toMatchObject({ categoria: 'VEICULO', classe: 'CAMINHAO', quantidadePessoas: 3, acomodacao: 'REDE' })
+    expect(gravado).not.toHaveProperty('tipo')
+  })
+
+  it('a página de antes, com a categoria no lugar do que vai embarcar, continua gravando', async () => {
+    const { tipo: _, ...semTipo } = PEDIDO.respostas
+    const resposta = await montar().enviar({
+      ...PEDIDO,
+      respostas: { ...semTipo, canal: 'SITE', categoria: 'PASSAGEIRO', quantidadePessoas: 2, acomodacao: 'REDE' },
+    })
+    expect(resposta.status).toBe(201)
+  })
+
+  it('o que vai embarcar ou o porte fora do conjunto: 400', async () => {
+    const { enviar } = montar()
+    expect((await enviar({ ...PEDIDO, respostas: { ...PEDIDO.respostas, canal: 'SITE', embarque: 'ENCOMENDA' } })).status).toBe(400)
+    expect((await enviar({ ...PEDIDO, respostas: { ...PEDIDO.respostas, canal: 'SITE', porteVeiculo: 'MEDIO' } })).status).toBe(400)
+  })
+
   it('o banco falhando: 500 sem detalhe', async () => {
     const banco = new Banco()
     banco.falhar = true
