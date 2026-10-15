@@ -128,6 +128,30 @@ describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PU
     expect(gravada).toMatchObject({ acomodacao: 'SUITE', quantidadePessoas: 7 })
     expect(gravada).not.toHaveProperty('tipo')
 
+    /* Passageiros e veículo (naveg-front#66): a reserva de veículo leva as pessoas. As Rules do KMP aceitam as chaves de
+       pessoas na categoria VEICULO sem mudar (PO, 2026-10-14). */
+    const juntos = montarReserva(
+      {
+        canal: 'SITE',
+        embarque: 'PASSAGEIROS_E_VEICULO',
+        porteVeiculo: 'PESADO',
+        classeVeiculo: 'CAMINHAO',
+        quantidadePessoas: 3,
+        acomodacao: 'REDE',
+        cliente: { nome: 'Maria' },
+      },
+      saida(),
+      { codigo: 'NVG-CAM1N3', criadoEm: InstanteLocal.de(`${VESPERA}T08:00`) as InstanteLocal, agenciaId: AGENCIA },
+    )
+    if (juntos.caso !== 'OK') throw new Error('exemplo incoerente')
+    expect(await repositorio.criar(juntos.reserva)).toEqual({ caso: 'GRAVADA' })
+    expect((await banco.doc('reservas/NVG-CAM1N3').get()).data()).toMatchObject({
+      categoria: 'VEICULO',
+      classe: 'CAMINHAO',
+      quantidadePessoas: 3,
+      acomodacao: 'REDE',
+    })
+
     /* A encomenda (entrega 3 do MVP): as duas formas de retirada passam pelas Rules do KMP, com o evento. */
     const paraOutra = encomenda('NVG-ENC0M1', {
       tipoVolume: 'CAIXA',
