@@ -115,6 +115,19 @@ describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PU
     expect((await repositorio.criar(reserva('NVG-7K3QP5', AGENCIA, 'nao-existe'))).caso).toBe('FALHA')
     expect((await banco.doc('reservas/NVG-7K3QP5').get()).exists).toBe(false)
 
+    /* Pelo site (naveg-front#65): sete numa suíte, sem o tipo. As Rules do KMP não mudaram (PO, 2026-10-14) — e
+       aceitam: `formaDoPedido` não exige o tipo nem limita a quantidade pela acomodação. */
+    const doSite = montarReserva(
+      { canal: 'SITE', categoria: 'PASSAGEIRO', quantidadePessoas: 7, acomodacao: 'SUITE', cliente: { nome: 'Maria' } },
+      saida(),
+      { codigo: 'NVG-5ATE07', criadoEm: InstanteLocal.de(`${VESPERA}T08:00`) as InstanteLocal, agenciaId: AGENCIA },
+    )
+    if (doSite.caso !== 'OK') throw new Error('exemplo incoerente')
+    expect(await repositorio.criar(doSite.reserva)).toEqual({ caso: 'GRAVADA' })
+    const gravada = (await banco.doc('reservas/NVG-5ATE07').get()).data()
+    expect(gravada).toMatchObject({ acomodacao: 'SUITE', quantidadePessoas: 7 })
+    expect(gravada).not.toHaveProperty('tipo')
+
     /* A encomenda (entrega 3 do MVP): as duas formas de retirada passam pelas Rules do KMP, com o evento. */
     const paraOutra = encomenda('NVG-ENC0M1', {
       tipoVolume: 'CAIXA',

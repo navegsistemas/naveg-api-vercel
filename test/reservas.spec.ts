@@ -339,6 +339,35 @@ describe('a montagem', () => {
     expect(await resposta.json()).toMatchObject({ erro: 'RESERVA_INCOERENTE', pendencias: ['CLIENTE_TELEFONE'] })
   })
 
+  /* naveg-front#65 (fluviapp-kmp#62): pelo site, o tipo fica para o atendimento, e o grupo não tem o teto da
+     acomodação. É o canal que diz por qual caminho remontar. */
+  it('pelo site: sete numa suíte, sem o tipo — 201, e gravada sem ele', async () => {
+    const { cena, enviar } = montar()
+    const { tipo: _, ...semTipo } = PEDIDO.respostas
+    const resposta = await enviar({
+      ...PEDIDO,
+      respostas: { ...semTipo, canal: 'SITE', acomodacao: 'SUITE', quantidadePessoas: 7 },
+    })
+    expect(resposta.status).toBe(201)
+    const { codigo } = (await resposta.json()) as { codigo: string }
+    const gravado = cena.banco.documentos.get(codigo)
+    expect(gravado).toMatchObject({ categoria: 'PASSAGEIRO', acomodacao: 'SUITE', quantidadePessoas: 7 })
+    expect(gravado).not.toHaveProperty('tipo')
+  })
+
+  it('sem o canal é o quiosque: a rede sem o tipo é 422 RESERVA_INCOMPLETA', async () => {
+    const { tipo: _, ...semTipo } = PEDIDO.respostas
+    const resposta = await montar().enviar({ ...PEDIDO, respostas: semTipo })
+    expect(resposta.status).toBe(422)
+    expect(((await resposta.json()) as { erro: string }).erro).toBe('RESERVA_INCOMPLETA')
+  })
+
+  it('canal fora do conjunto, ou 51 pessoas: 400', async () => {
+    const { enviar } = montar()
+    expect((await enviar({ ...PEDIDO, respostas: { ...PEDIDO.respostas, canal: 'APP' } })).status).toBe(400)
+    expect((await enviar({ ...PEDIDO, respostas: { ...PEDIDO.respostas, canal: 'SITE', quantidadePessoas: 51 } })).status).toBe(400)
+  })
+
   it('o banco falhando: 500 sem detalhe', async () => {
     const banco = new Banco()
     banco.falhar = true
