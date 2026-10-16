@@ -118,7 +118,14 @@ describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PU
     /* Pelo site (naveg-front#65): sete numa suíte, sem o tipo. As Rules do KMP não mudaram (PO, 2026-10-14) — e
        aceitam: `formaDoPedido` não exige o tipo nem limita a quantidade pela acomodação. */
     const doSite = montarReserva(
-      { canal: 'SITE', categoria: 'PASSAGEIRO', quantidadePessoas: 7, acomodacao: 'SUITE', cliente: { nome: 'Maria' } },
+      /* Com o celular: pelo site ele é obrigatório desde a 2.3 (domain 0.12.0). */
+      {
+        canal: 'SITE',
+        categoria: 'PASSAGEIRO',
+        quantidadePessoas: 7,
+        acomodacao: 'SUITE',
+        cliente: { nome: 'Maria', telefone: '(91) 98888-7777' },
+      },
       saida(),
       { codigo: 'NVG-5ATE07', criadoEm: InstanteLocal.de(`${VESPERA}T08:00`) as InstanteLocal, agenciaId: AGENCIA },
     )
@@ -138,7 +145,7 @@ describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PU
         classeVeiculo: 'CAMINHAO',
         quantidadePessoas: 3,
         acomodacao: 'REDE',
-        cliente: { nome: 'Maria' },
+        cliente: { nome: 'Maria', telefone: '(91) 98888-7777' },
       },
       saida(),
       { codigo: 'NVG-CAM1N3', criadoEm: InstanteLocal.de(`${VESPERA}T08:00`) as InstanteLocal, agenciaId: AGENCIA },

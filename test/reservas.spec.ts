@@ -355,6 +355,24 @@ describe('a montagem', () => {
     expect(gravado).not.toHaveProperty('tipo')
   })
 
+  /* naveg-front 2.3 (PO, 2026-10-16): pelo site, o celular de quem reserva é obrigatório; no quiosque, continua opcional. */
+  it('pelo site, sem o celular: 422 RESERVA_INCOMPLETA, e nada gravado', async () => {
+    const { cena, enviar } = montar()
+    const { tipo: _, ...semTipo } = PEDIDO.respostas
+    const resposta = await enviar({
+      ...PEDIDO,
+      respostas: { ...semTipo, canal: 'SITE', quantidadePessoas: 2, cliente: { nome: 'Maria Souza' } },
+    })
+    expect(resposta.status).toBe(422)
+    expect(((await resposta.json()) as { erro: string }).erro).toBe('RESERVA_INCOMPLETA')
+    expect(cena.banco.documentos.size).toBe(0)
+  })
+
+  it('no quiosque, sem o celular: 201, como antes', async () => {
+    const resposta = await montar().enviar({ ...PEDIDO, respostas: { ...PEDIDO.respostas, cliente: { nome: 'Maria Souza' } } })
+    expect(resposta.status).toBe(201)
+  })
+
   it('sem o canal é o quiosque: a rede sem o tipo é 422 RESERVA_INCOMPLETA', async () => {
     const { tipo: _, ...semTipo } = PEDIDO.respostas
     const resposta = await montar().enviar({ ...PEDIDO, respostas: semTipo })
