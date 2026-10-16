@@ -401,8 +401,16 @@ describe('a montagem', () => {
 
   it('o que vai embarcar ou o porte fora do conjunto: 400', async () => {
     const { enviar } = montar()
-    expect((await enviar({ ...PEDIDO, respostas: { ...PEDIDO.respostas, canal: 'SITE', embarque: 'ENCOMENDA' } })).status).toBe(400)
+    expect((await enviar({ ...PEDIDO, respostas: { ...PEDIDO.respostas, canal: 'SITE', embarque: 'MUDANCA' } })).status).toBe(400)
     expect((await enviar({ ...PEDIDO, respostas: { ...PEDIDO.respostas, canal: 'SITE', porteVeiculo: 'MEDIO' } })).status).toBe(400)
+  })
+
+  /* Desde a 2.7, "Encomenda" é uma resposta de "o que vai embarcar" (domain 0.11.0). Mas a encomenda chega como pedido de
+     encomenda, com a semana e as regras dela (o `encomenda` do corpo): pelas respostas da reserva ela não se monta. */
+  it('a encomenda pelas respostas da reserva: 422, e nada gravado', async () => {
+    const { cena, enviar } = montar()
+    expect((await enviar({ ...PEDIDO, respostas: { ...PEDIDO.respostas, canal: 'SITE', embarque: 'ENCOMENDA' } })).status).toBe(422)
+    expect(cena.banco.documentos.size).toBe(0)
   })
 
   it('o banco falhando: 500 sem detalhe', async () => {
@@ -455,6 +463,44 @@ describe('a reserva de encomenda', () => {
       destinatario: { nome: 'João Lima', telefone: '5596988887777' },
     })
     expect(paraDominio(codigo, reserva)?.categoria).toBe('ENCOMENDA')
+  })
+
+  /* A página da 2.7 (naveg-front#72) não pergunta quem retira: a retirada vem do destinatário, e sem ele fica ausente,
+     "a definir no atendimento", como o KMP lê (fluviapp-kmp#43). A página de antes, com a retirada explícita, segue
+     aceita (o primeiro cenário). */
+  it('sem quem retira e sem destinatário: 201, gravada sem a retirada, e o KMP lê', async () => {
+    const { cena, enviar } = montar()
+    const { retirada: _r, destinatario: _d, ...semRetirada } = ENVIO.encomenda
+    const resposta = await enviar({
+      ...ENVIO,
+      encomenda: { ...semRetirada, cliente: { nome: 'Maria Souza', telefone: '(91) 98888-7777' } },
+    })
+    expect(resposta.status).toBe(201)
+
+    const { codigo, reserva } = (await resposta.json()) as { codigo: string; reserva: ReservaDocumento }
+    expect(cena.banco.documentos.get(codigo)).toEqual(reserva)
+    expect(reserva).toMatchObject({ categoria: 'ENCOMENDA', cliente: { nome: 'Maria Souza', telefone: '5591988887777' } })
+    expect(reserva).not.toHaveProperty('retirada')
+    expect(reserva).not.toHaveProperty('destinatario')
+    expect(paraDominio(codigo, reserva)?.categoria).toBe('ENCOMENDA')
+  })
+
+  it('sem quem retira, com o destinatário: 201, e a retirada sai "outra pessoa"', async () => {
+    const { retirada: _r, ...semRetirada } = ENVIO.encomenda
+    const resposta = await montar().enviar({ ...ENVIO, encomenda: semRetirada })
+    expect(resposta.status).toBe(201)
+    const { reserva } = (await resposta.json()) as { reserva: ReservaDocumento }
+    expect(reserva).toMatchObject({
+      retirada: 'OUTRA_PESSOA',
+      destinatario: { nome: 'João Lima', telefone: '5596988887777' },
+    })
+  })
+
+  it('sem quem retira, sem destinatário e sem o celular de quem manda: 422', async () => {
+    const { retirada: _r, destinatario: _d, ...semRetirada } = ENVIO.encomenda
+    const resposta = await montar().enviar({ ...ENVIO, encomenda: semRetirada })
+    expect(resposta.status).toBe(422)
+    expect(await resposta.json()).toMatchObject({ erro: 'RESERVA_INCOMPLETA' })
   })
 
   it('quem manda e retira sem celular: 422 — o passo de quem manda não fica respondido', async () => {

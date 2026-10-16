@@ -178,6 +178,16 @@ describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PU
     })
     expect(await repositorio.criar(doProprio)).toEqual({ caso: 'GRAVADA' })
 
+    /* A da 2.7 (naveg-front#72): sem quem retira, o atendimento combina. As Rules do KMP aceitam (fluviapp-kmp#43). */
+    const aCombinar = encomenda('NVG-ENC0M4', {
+      tipoVolume: 'CAIXA',
+      quantidadeVolumes: 2,
+      faixaPeso: 'DE_5_A_20',
+      cliente: { nome: 'Maria', telefone: '(91) 98888-7777' },
+    })
+    expect(await repositorio.criar(aCombinar)).toEqual({ caso: 'GRAVADA' })
+    expect((await banco.doc('reservas/NVG-ENC0M4').get()).data()).not.toHaveProperty('retirada')
+
     /* E o que o domínio não monta, as Rules também recusam: quem manda e retira, sem celular. */
     expect((await repositorio.criar({ ...doProprio, codigo: 'NVG-ENC0M3', cliente: { nome: 'Carlos' } })).caso).toBe('FALHA')
     expect((await banco.doc('reservas/NVG-ENC0M3').get()).exists).toBe(false)
