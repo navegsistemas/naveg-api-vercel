@@ -23,10 +23,13 @@ import { criarApp } from '../src/app.js'
 import { lerConfig } from '../src/config.js'
 import { catalogoDoFirestore } from '../src/firestore/catalogo-firestore.js'
 import { firestoreDaConta } from '../src/firestore/conexao.js'
+import { senhaVazadaNoHibp } from '../src/conta/senha-fraca.js'
+import { contasNoFirestore } from '../src/firestore/conta-firestore.js'
 import { loteNoFirestore, reservaNoFirestore } from '../src/firestore/reserva-firestore.js'
 import { sessaoDoServicoNoFirebase, UID_DO_SERVICO } from '../src/firestore/servico.js'
-import { limiteNoUpstash } from '../src/protecao/limite-upstash.js'
-import { desafioNaCloudflare } from '../src/protecao/turnstile.js'
+import { limiteNoUpstash, travaNoUpstash } from '../src/protecao/limite-upstash.js'
+import { ACAO_DO_CADASTRO, desafioNaCloudflare } from '../src/protecao/turnstile.js'
+import type { DependenciasDoCadastro } from '../src/rotas/conta.js'
 import type { DependenciasDoEnvio } from '../src/rotas/reservas.js'
 
 const config = lerConfig()
@@ -34,21 +37,22 @@ const leitura = firestoreDaConta('leitura', config.contaDeLeitura, config.projet
 
 const protecao = config.protecaoDoEnvio
 const chaveWeb = config.chaveWebDoFirebase
-const envio: DependenciasDoEnvio | null =
+/* Uma sessão do serviço por instância, para a reserva e a conta: um login só. */
+const servico =
   protecao === null || chaveWeb === null
     ? null
+    : sessaoDoServicoNoFirebase({
+        contaDeEscrita: config.contaDeEscrita,
+        projeto: config.projetoFirebase,
+        chaveWeb,
+        agenciaId: config.empresaId,
+      })
+
+const envio: DependenciasDoEnvio | null =
+  protecao === null || servico === null
+    ? null
     : {
-        repositorio: reservaNoFirestore(
-          loteNoFirestore(
-            sessaoDoServicoNoFirebase({
-              contaDeEscrita: config.contaDeEscrita,
-              projeto: config.projetoFirebase,
-              chaveWeb,
-              agenciaId: config.empresaId,
-            }),
-          ),
-          UID_DO_SERVICO,
-        ),
+        repositorio: reservaNoFirestore(loteNoFirestore(servico), UID_DO_SERVICO),
         desafio: desafioNaCloudflare(protecao.segredoDoTurnstile),
         limite: limiteNoUpstash(protecao.upstashUrl, protecao.upstashToken),
         /* O token do Upstash já é segredo da implantação, e o contador vive no mesmo lugar que ele: trocar um
@@ -56,8 +60,22 @@ const envio: DependenciasDoEnvio | null =
         salDoIp: protecao.upstashToken,
       }
 
+/* O cadastro pede as mesmas peças da reserva — o desafio, o limite e a sessão do serviço —, com a ação e o
+   contador dele. */
+const cadastro: DependenciasDoCadastro | null =
+  protecao === null || servico === null
+    ? null
+    : {
+        contas: contasNoFirestore(servico, config.empresaId),
+        desafio: desafioNaCloudflare(protecao.segredoDoTurnstile, undefined, ACAO_DO_CADASTRO),
+        limite: limiteNoUpstash(protecao.upstashUrl, protecao.upstashToken, undefined, undefined, 'naveg:cadastro'),
+        trava: travaNoUpstash(protecao.upstashUrl, protecao.upstashToken, 'naveg:cadastro:email'),
+        senhaVazada: senhaVazadaNoHibp(),
+        sal: protecao.upstashToken,
+      }
+
 /* O `handle` do `@hono/node-server/vercel` (1.x) era só isto, e a 2.x tirou o atalho: o ouvinte de requisição do
    Node, que traduz o `IncomingMessage` da função no `Request` do app. */
-const app = criarApp({ config, catalogo: catalogoDoFirestore(leitura, config.empresaId), envio })
+const app = criarApp({ config, catalogo: catalogoDoFirestore(leitura, config.empresaId), envio, cadastro })
 
 export default getRequestListener(app.fetch)

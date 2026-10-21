@@ -20,6 +20,8 @@ import { ErroDaApi, type CorpoDeErro } from './erros.js'
 import { leitorComCache } from './catalogo-em-cache.js'
 import type { LeitorDoCatalogo, Relogio } from './portas.js'
 import { rotaDoCatalogo } from './rotas/catalogo.js'
+import { rotaDaConta, type DependenciasDoCadastro } from './rotas/conta.js'
+import { rotaDeEco } from './rotas/eco.js'
 import { rotaDeReservas, type DependenciasDoEnvio } from './rotas/reservas.js'
 import { rotaDeSaude } from './rotas/saude.js'
 
@@ -28,10 +30,12 @@ export interface Dependencias {
   readonly catalogo: LeitorDoCatalogo
   /** O que o `POST /reservas` precisa. `null`: o envio não está configurado, e a rota responde `503`. */
   readonly envio: DependenciasDoEnvio | null
+  /** O que o `POST /conta` precisa. Ausente ou `null`: o cadastro não está configurado, e a rota responde `503`. */
+  readonly cadastro?: DependenciasDoCadastro | null
   readonly relogio?: Relogio
 }
 
-export function criarApp({ config, catalogo, envio, relogio = () => new Date() }: Dependencias): Hono {
+export function criarApp({ config, catalogo, envio, cadastro = null, relogio = () => new Date() }: Dependencias): Hono {
   const app = new Hono()
 
   app.use(
@@ -57,6 +61,8 @@ export function criarApp({ config, catalogo, envio, relogio = () => new Date() }
       envio,
     }),
   )
+  app.route('/conta', rotaDaConta({ origensPermitidas: config.origensPermitidas, relogio, cadastro }))
+  app.route('/eco', rotaDeEco())
 
   app.notFound((c) => {
     const corpo: CorpoDeErro = { erro: 'CORPO_INVALIDO', mensagem: 'Rota inexistente' }

@@ -43,6 +43,7 @@ import {
 import { ErroDaApi } from '../erros.js'
 import type { LeitorDoCatalogo, LimitePorIp, Relogio, VerificadorDoDesafio } from '../portas.js'
 import { ipDaRequisicao, resumirIp } from '../protecao/ip.js'
+import { conferirOrigem } from '../protecao/origem.js'
 
 /**
  * O fuso da operação — o mesmo do totem (`conteudo/operacao.ts`, no front). Divergir aqui faria o servidor
@@ -77,10 +78,7 @@ export function rotaDeReservas(contexto: ContextoDaRota): Hono {
     '/',
     async (c, proximo) => {
       /* 1 · a origem, antes de ler um byte do corpo. */
-      const origem = c.req.header('origin')
-      if (origem === undefined || !contexto.origensPermitidas.includes(origem)) {
-        throw new ErroDaApi(403, 'ORIGEM_NAO_PERMITIDA', 'Origem não permitida')
-      }
+      conferirOrigem(c.req.header('origin'), contexto.origensPermitidas)
       /* 2 · o envio ligado. */
       if (contexto.envio === null) {
         throw new ErroDaApi(503, 'ENVIO_INDISPONIVEL', 'Envio de reservas não configurado')

@@ -14,8 +14,8 @@ import { lerConfig } from '../src/config.js'
 import { reservaNoFirestore, type Escrita, type LoteDeCriacao } from '../src/firestore/reserva-firestore.js'
 import { claimsDoServico, sessaoDoServico, UID_DO_SERVICO } from '../src/firestore/servico.js'
 import { ipDaRequisicao, resumirIp } from '../src/protecao/ip.js'
-import { limiteNoUpstash } from '../src/protecao/limite-upstash.js'
-import { desafioNaCloudflare, type Buscar } from '../src/protecao/turnstile.js'
+import { limiteNoUpstash, travaNoUpstash } from '../src/protecao/limite-upstash.js'
+import { ACAO_DO_CADASTRO, desafioNaCloudflare, type Buscar } from '../src/protecao/turnstile.js'
 
 beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -170,6 +170,14 @@ describe('o desafio na Cloudflare', () => {
     const { buscar } = respondendo(json({}, 502))
     await expect(desafioNaCloudflare('segredo', buscar).verificar('token', 'ip')).rejects.toThrow()
   })
+
+  it('o do cadastro só passa com a ação dele: o token da reserva não cria conta, e o do cadastro não reserva', async () => {
+    const cadastro = (resposta: object) => desafioNaCloudflare('segredo', respondendo(json(resposta)).buscar, ACAO_DO_CADASTRO)
+    expect(await cadastro({ success: true, action: 'cadastro' }).verificar('token', 'ip')).toBe(true)
+    expect(await cadastro({ success: true, action: 'reserva' }).verificar('token', 'ip')).toBe(false)
+    const reserva = desafioNaCloudflare('segredo', respondendo(json({ success: true, action: 'cadastro' })).buscar)
+    expect(await reserva.verificar('token', 'ip')).toBe(false)
+  })
 })
 
 describe('o limite no Upstash', () => {
@@ -196,6 +204,29 @@ describe('o limite no Upstash', () => {
     for (const buscar of [respondendo(json({}, 500)).buscar, respondendo(json({ erro: 1 })).buscar]) {
       expect(await limiteNoUpstash('https://r', 't', undefined, buscar).registrar('abc')).toBe(true)
     }
+  })
+
+  it('o cadastro conta noutra chave: cada formulário com a sua cota', async () => {
+    const { buscar, pedidos } = respondendo(json([{ result: 1 }, { result: 1 }]))
+    await limiteNoUpstash('https://r', 't', undefined, buscar, 'naveg:cadastro').registrar('abc')
+    expect(JSON.parse(String(pedidos[0]?.init?.body))[0]).toEqual(['INCR', 'naveg:cadastro:abc'])
+  })
+})
+
+describe('a trava no Upstash', () => {
+  it('SET NX EX: o primeiro trava, e quem chega enquanto ela vale, não', async () => {
+    const primeiro = respondendo(json([{ result: 'OK' }]))
+    expect(await travaNoUpstash('https://r/', 't', 'naveg:cadastro:email', primeiro.buscar).travar('abc', 30)).toBe(true)
+    expect(primeiro.pedidos[0]?.url).toBe('https://r/pipeline')
+    expect(JSON.parse(String(primeiro.pedidos[0]?.init?.body))).toEqual([
+      ['SET', 'naveg:cadastro:email:abc', '1', 'NX', 'EX', '30'],
+    ])
+    const segundo = respondendo(json([{ result: null }]))
+    expect(await travaNoUpstash('https://r', 't', 'p', segundo.buscar).travar('abc', 30)).toBe(false)
+  })
+
+  it('o Upstash fora do ar libera: a trava só fecha uma janela de milissegundos', async () => {
+    expect(await travaNoUpstash('https://r', 't', 'p', respondendo(json({}, 500)).buscar).travar('abc', 30)).toBe(true)
   })
 })
 

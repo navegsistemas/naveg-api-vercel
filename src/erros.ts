@@ -28,6 +28,12 @@ export const CODIGOS = [
   'RESERVA_INCOMPLETA',
   /** O envio de reservas não está configurado neste ambiente (falta o desafio ou o limite). */
   'ENVIO_INDISPONIVEL',
+  /** O cadastro tem campo errado. Vem com `pendencias`, as do domínio (`PENDENCIAS_DO_CADASTRO`). */
+  'CADASTRO_INVALIDO',
+  /** A senha é comum ou vazada. Vem com `pendencias`: `SENHA_COMUM` ou `SENHA_VAZADA` — a tela diz por quê (3.1, C). */
+  'SENHA_FRACA',
+  /** O cadastro de contas não está configurado neste ambiente. */
+  'CADASTRO_INDISPONIVEL',
   /** Qualquer coisa nossa que deu errado. */
   'FALHA_INTERNA',
 ] as const
@@ -37,7 +43,7 @@ export type CodigoDeErro = (typeof CODIGOS)[number]
 export interface CorpoDeErro {
   readonly erro: CodigoDeErro
   readonly mensagem: string
-  /** As pendências do domínio, quando o erro é `RESERVA_INCOERENTE`. O front tem texto para cada uma. */
+  /** As pendências, quando o erro é `RESERVA_INCOERENTE`, `CADASTRO_INVALIDO` ou `SENHA_FRACA`. O front tem texto para cada uma. */
   readonly pendencias?: readonly string[]
 }
 

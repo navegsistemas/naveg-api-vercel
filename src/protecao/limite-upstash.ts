@@ -12,7 +12,7 @@
  *   que continua de pé. Recusar toda reserva porque o contador caiu trocaria um risco de abuso por uma falha
  *   certa para todo mundo.
  */
-import type { LimitePorIp } from '../portas.js'
+import type { LimitePorIp, TravaPorChave } from '../portas.js'
 import type { Buscar } from './turnstile.js'
 
 export interface RegraDoLimite {
@@ -28,17 +28,22 @@ export interface RegraDoLimite {
  */
 export const LIMITE_PADRAO: RegraDoLimite = { teto: 20, janelaEmSegundos: 600 }
 
+/**
+ * [prefixo] separa os contadores: `naveg:reservas` e `naveg:cadastro`. Cada formulário tem a sua cota, e quem criou
+ * conta não perde reservas por isso — nem o contrário.
+ */
 export function limiteNoUpstash(
   url: string,
   token: string,
   regra: RegraDoLimite = LIMITE_PADRAO,
   buscar: Buscar = (endereco, init) => fetch(endereco, init),
+  prefixo = 'naveg:reservas',
 ): LimitePorIp {
   const pipeline = `${url.replace(/\/+$/, '')}/pipeline`
 
   return {
     async registrar(ipResumido) {
-      const chave = `naveg:reservas:${ipResumido}`
+      const chave = `${prefixo}:${ipResumido}`
       try {
         const resposta = await buscar(pipeline, {
           method: 'POST',
@@ -55,6 +60,38 @@ export function limiteNoUpstash(
         return contagem <= regra.teto
       } catch (erro) {
         console.error(`limite por IP indisponível, envio liberado: ${(erro as Error).message}`)
+        return true
+      }
+    },
+  }
+}
+
+/**
+ * **A trava curta**, no mesmo Redis: `SET chave 1 NX EX segundos`. Só o primeiro grava; quem chega enquanto ela
+ * vale recebe `false`. **Se o Upstash cair, deixa passar**, pela mesma razão do limite: a trava só fecha a janela
+ * de milissegundos entre procurar o e-mail e gravar a conta.
+ */
+export function travaNoUpstash(
+  url: string,
+  token: string,
+  prefixo: string,
+  buscar: Buscar = (endereco, init) => fetch(endereco, init),
+): TravaPorChave {
+  const pipeline = `${url.replace(/\/+$/, '')}/pipeline`
+  return {
+    async travar(chaveResumida, segundos) {
+      try {
+        const resposta = await buscar(pipeline, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify([['SET', `${prefixo}:${chaveResumida}`, '1', 'NX', 'EX', String(segundos)]]),
+        })
+        if (!resposta.ok) throw new Error(`HTTP ${resposta.status}`)
+        const [set] = (await resposta.json()) as [{ result?: unknown }?]
+        /* `OK` gravou; `null` já existia. */
+        return set?.result === 'OK'
+      } catch (erro) {
+        console.error(`trava indisponível, liberada: ${(erro as Error).message}`)
         return true
       }
     },
