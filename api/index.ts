@@ -12,7 +12,7 @@
  * seguintes na mesma instância reaproveitam, e a que falta uma variável — ou traz uma conta de outro projeto —
  * falha na partida, não na requisição.
  *
- * É o **único** arquivo que sabe que do outro lado há um Firestore, uma Cloudflare e um Upstash. A conta de
+ * É o **único** arquivo que sabe que do outro lado há um Firestore, uma Cloudflare, um Upstash e o Gmail. A conta de
  * escrita só é usada quando o envio está configurado: sem desafio, limite e a chave Web não há `POST`, e sem
  * `POST` não há motivo para essa identidade existir em memória. E mesmo com ele, ela só **assina o token** com
  * que a API grava como usuário de serviço, sob as Rules do fluviapp (`src/firestore/servico.ts`).
@@ -24,6 +24,7 @@ import { lerConfig } from '../src/config.js'
 import { catalogoDoFirestore } from '../src/firestore/catalogo-firestore.js'
 import { firestoreDaConta } from '../src/firestore/conexao.js'
 import { senhaVazadaNoHibp } from '../src/conta/senha-fraca.js'
+import { carteiroNoWorkspace } from '../src/email/smtp.js'
 import { contasNoFirestore } from '../src/firestore/conta-firestore.js'
 import { loteNoFirestore, reservaNoFirestore } from '../src/firestore/reserva-firestore.js'
 import { sessaoDoServicoNoFirebase, UID_DO_SERVICO } from '../src/firestore/servico.js'
@@ -61,9 +62,10 @@ const envio: DependenciasDoEnvio | null =
       }
 
 /* O cadastro pede as mesmas peças da reserva — o desafio, o limite e a sessão do serviço —, com a ação e o
-   contador dele. */
+   contador dele; e o e-mail, porque uma conta que não recebe o link nunca se confirma. */
+const contaDeEnvio = config.envioDeEmail ?? null
 const cadastro: DependenciasDoCadastro | null =
-  protecao === null || servico === null
+  protecao === null || servico === null || contaDeEnvio === null
     ? null
     : {
         contas: contasNoFirestore(servico, config.empresaId),
@@ -71,6 +73,7 @@ const cadastro: DependenciasDoCadastro | null =
         limite: limiteNoUpstash(protecao.upstashUrl, protecao.upstashToken, undefined, undefined, 'naveg:cadastro'),
         trava: travaNoUpstash(protecao.upstashUrl, protecao.upstashToken, 'naveg:cadastro:email'),
         senhaVazada: senhaVazadaNoHibp(),
+        carteiro: carteiroNoWorkspace(contaDeEnvio),
         sal: protecao.upstashToken,
       }
 

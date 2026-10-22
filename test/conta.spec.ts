@@ -7,21 +7,32 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { contaDoDocumento, type EscritaDaConta } from '@navegsistemas/domain'
+import { contaDoDocumento, type EscritaDaConta, type TipoDeLink } from '@navegsistemas/domain'
 
 import { criarApp } from '../src/app.js'
 import type { Config } from '../src/config.js'
+import { PRAZO_DA_CONFIRMACAO_MS, resumirCodigo } from '../src/conta/codigo.js'
 import { conferirSenha } from '../src/conta/senha.js'
 import type {
+  CarteiroDeEmail,
   ConsultaDeSenhaVazada,
+  ContaParaConfirmar,
   ContasDoCliente,
   LeitorDoCatalogo,
   LimitePorIp,
+  MensagemDeEmail,
   SegredoDeAcesso,
+  SegredoDeConfirmacao,
   TravaPorChave,
   VerificadorDoDesafio,
 } from '../src/portas.js'
-import { CONFIRA_O_EMAIL, LIMITE_DO_CORPO_DO_CADASTRO, type DependenciasDoCadastro } from '../src/rotas/conta.js'
+import {
+  CONFIRA_O_EMAIL,
+  EMAIL_CONFIRMADO,
+  JA_CONFIRMADO,
+  LIMITE_DO_CORPO_DO_CADASTRO,
+  type DependenciasDoCadastro,
+} from '../src/rotas/conta.js'
 
 const ORIGEM = 'https://agencia.naveg.com.br'
 const TERCA_8H_EM_BELEM = new Date('2026-10-13T11:00:00Z')
@@ -49,28 +60,67 @@ interface Gravada {
   contaId: string
   lote: readonly EscritaDaConta[]
   acesso: SegredoDeAcesso
+  confirmacao: SegredoDeConfirmacao
   criadaEm: number
 }
 
-/** As contas, em memória. */
+/** As contas, em memória: as gravadas, o que a confirmação lê delas, e o que foi confirmado. */
 class Contas implements ContasDoCliente {
   readonly gravadas: Gravada[] = []
   readonly procuras: string[] = []
+  readonly envios: { contaId: string; tipo: TipoDeLink; em: number }[] = []
+  readonly confirmadas: { contaId: string; em: number }[] = []
+  readonly estado = new Map<string, ContaParaConfirmar>()
   falhar = false
   constructor(private readonly emails: Set<string> = new Set()) {}
   async existeComEmail(email: string) {
     this.procuras.push(email)
     return this.emails.has(email)
   }
-  async criar(contaId: string, lote: readonly EscritaDaConta[], acesso: SegredoDeAcesso, criadaEm: number) {
+  async criar(
+    contaId: string,
+    lote: readonly EscritaDaConta[],
+    acesso: SegredoDeAcesso,
+    confirmacao: SegredoDeConfirmacao,
+    criadaEm: number,
+  ) {
     if (this.falhar) return false
-    this.gravadas.push({ contaId, lote, acesso, criadaEm })
+    this.gravadas.push({ contaId, lote, acesso, confirmacao, criadaEm })
+    this.estado.set(contaId, { confirmadaEm: null, confirmacao })
+    return true
+  }
+  async registrarEnvio(contaId: string, tipo: TipoDeLink, em: number) {
+    this.envios.push({ contaId, tipo, em })
+  }
+  async paraConfirmar(contaId: string) {
+    return this.estado.get(contaId) ?? null
+  }
+  async confirmar(contaId: string, em: number) {
+    if (this.falhar) return false
+    this.confirmadas.push({ contaId, em })
+    this.estado.set(contaId, { confirmadaEm: em, confirmacao: null })
     return true
   }
 }
 
+/** O carteiro, em memória. `saem = false`: o SMTP recusa. */
+class Carteiro implements CarteiroDeEmail {
+  readonly mandados: MensagemDeEmail[] = []
+  saem = true
+  async enviar(mensagem: MensagemDeEmail) {
+    if (!this.saem) return false
+    this.mandados.push(mensagem)
+    return true
+  }
+}
+
+/** O código fixo dos cenários: 43 caracteres base64url, como os de verdade. */
+const CODIGO = 'c'.repeat(43)
+
 function montar(opcoes: { cadastro?: false; contas?: Contas } = {}) {
   const cena = {
+    agora: TERCA_8H_EM_BELEM,
+    carteiro: new Carteiro(),
     contas: opcoes.contas ?? new Contas(),
     desafios: [] as string[],
     ipsNoLimite: [] as string[],
@@ -109,16 +159,26 @@ function montar(opcoes: { cadastro?: false; contas?: Contas } = {}) {
   const cadastro: DependenciasDoCadastro | null =
     opcoes.cadastro === false
       ? null
-      : { contas: cena.contas, desafio, limite, trava, senhaVazada, sal: 'sal-de-teste', novoId: () => 'conta-1' }
-  const app = criarApp({ config: CONFIG, catalogo, envio: null, cadastro, relogio: () => TERCA_8H_EM_BELEM })
+      : {
+          contas: cena.contas,
+          desafio,
+          limite,
+          trava,
+          senhaVazada,
+          carteiro: cena.carteiro,
+          sal: 'sal-de-teste',
+          novoId: () => 'conta-1',
+          novoCodigo: () => CODIGO,
+        }
+  const app = criarApp({ config: CONFIG, catalogo, envio: null, cadastro, relogio: () => cena.agora })
 
-  const enviar = (corpo: unknown, cabecalhos: Record<string, string> = {}) =>
-    app.request('/conta', {
+  const postar = (caminho: string) => (corpo: unknown, cabecalhos: Record<string, string> = {}) =>
+    app.request(caminho, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Origin: ORIGEM, 'x-real-ip': '200.1.2.3', ...cabecalhos },
       body: typeof corpo === 'string' ? corpo : JSON.stringify(corpo),
     })
-  return { cena, enviar, app }
+  return { cena, enviar: postar('/conta'), confirmar: postar('/conta/confirmacao'), app }
 }
 
 let logs: string[]
@@ -184,6 +244,53 @@ describe('a conta nova', () => {
   })
 })
 
+describe('o e-mail de confirmação (3.2)', () => {
+  it('sai para o e-mail normalizado, com o link do site de onde veio o cadastro, e o código depois do #', async () => {
+    const { cena, enviar } = montar()
+    await enviar(CADASTRO)
+    expect(cena.carteiro.mandados).toHaveLength(1)
+    const [email] = cena.carteiro.mandados as [MensagemDeEmail]
+    expect(email.para).toBe('maria@exemplo.com.br')
+    expect(email.assunto).toBe('Confirme seu e-mail na NAVEG')
+    const link = `${ORIGEM}/conta/confirmar#conta-1.${CODIGO}`
+    expect(email.texto).toContain(link)
+    expect(email.texto).toContain('Olá, Maria!')
+    expect(email.texto).toContain('O link vale por 24 horas.')
+    expect(email.html).toContain(`href="${link}"`)
+  })
+
+  it('a conta guarda só o resumo do código, valendo 24 horas; e o envio fica registrado para o painel', async () => {
+    const { cena, enviar } = montar()
+    await enviar(CADASTRO)
+    const [gravada] = cena.contas.gravadas as [Gravada]
+    expect(gravada.confirmacao).toEqual({
+      resumoDoCodigo: resumirCodigo(CODIGO),
+      valeAte: TERCA_8H_EM_BELEM.getTime() + PRAZO_DA_CONFIRMACAO_MS,
+    })
+    expect(JSON.stringify(gravada)).not.toContain(CODIGO)
+    expect(cena.contas.envios).toEqual([{ contaId: 'conta-1', tipo: 'CONFIRMACAO', em: TERCA_8H_EM_BELEM.getTime() }])
+  })
+
+  it('o nome vai escapado no HTML: é texto que a pessoa digitou', async () => {
+    const { cena, enviar } = montar()
+    await enviar({ ...CADASTRO, nome: '<b>Maria</b> Souza' })
+    const [email] = cena.carteiro.mandados as [MensagemDeEmail]
+    expect(email.html).toContain('Olá, &lt;b&gt;Maria&lt;/b&gt;!')
+    expect(email.html).not.toContain('<b>Maria')
+  })
+
+  it('o e-mail que não sai não muda a resposta: 202, a conta gravada, o erro no log e nada registrado', async () => {
+    const { cena, enviar } = montar()
+    cena.carteiro.saem = false
+    const resposta = await enviar(CADASTRO)
+    expect(resposta.status).toBe(202)
+    expect(await resposta.json()).toEqual(CONFIRA_O_EMAIL)
+    expect(cena.contas.gravadas).toHaveLength(1)
+    expect(cena.contas.envios).toHaveLength(0)
+    expect(logs.join('\n')).toContain('conta conta-1: o link de confirmação não saiu')
+  })
+})
+
 describe('o e-mail que já tem conta não se revela', () => {
   it('a mesma resposta da conta nova, e nada gravado', async () => {
     const { cena, enviar } = montar({ contas: new Contas(new Set(['maria@exemplo.com.br'])) })
@@ -194,7 +301,28 @@ describe('o e-mail que já tem conta não se revela', () => {
     expect(cena.contas.gravadas).toHaveLength(0)
   })
 
-  it('o segundo toque no botão, com a trava de pé, também: a mesma resposta, sem procurar nem gravar', async () => {
+  it('o dono do e-mail recebe o aviso, sem link de confirmação (PO, 2026-10-21)', async () => {
+    const { cena, enviar } = montar({ contas: new Contas(new Set(['maria@exemplo.com.br'])) })
+    await enviar(CADASTRO)
+    expect(cena.carteiro.mandados).toHaveLength(1)
+    const [aviso] = cena.carteiro.mandados as [MensagemDeEmail]
+    expect(aviso.para).toBe('maria@exemplo.com.br')
+    expect(aviso.texto).toContain(
+      "Alguém tentou criar uma conta com este e-mail. Se foi você, entre ou use 'Esqueci a senha'.",
+    )
+    expect(aviso.texto).toContain(`${ORIGEM}/conta`)
+    expect(aviso.texto).not.toContain('/conta/confirmar')
+  })
+
+  it('o aviso que não sai também não muda a resposta', async () => {
+    const { cena, enviar } = montar({ contas: new Contas(new Set(['maria@exemplo.com.br'])) })
+    cena.carteiro.saem = false
+    const resposta = await enviar(CADASTRO)
+    expect(resposta.status).toBe(202)
+    expect(await resposta.json()).toEqual(CONFIRA_O_EMAIL)
+  })
+
+  it('o segundo toque no botão, com a trava de pé, também: a mesma resposta, sem procurar, gravar nem mandar', async () => {
     const { cena, enviar } = montar()
     cena.travaPassa = false
     const resposta = await enviar(CADASTRO)
@@ -202,6 +330,7 @@ describe('o e-mail que já tem conta não se revela', () => {
     expect(await resposta.json()).toEqual(CONFIRA_O_EMAIL)
     expect(cena.contas.procuras).toHaveLength(0)
     expect(cena.contas.gravadas).toHaveLength(0)
+    expect(cena.carteiro.mandados).toHaveLength(0)
   })
 
   it('a trava é do e-mail normalizado, resumido: "Maria@" e "maria@" são o mesmo, e o endereço não aparece', async () => {
@@ -308,6 +437,87 @@ describe('as conferências, da mais barata à mais cara', () => {
     contas.falhar = true
     const { enviar } = montar({ contas })
     const resposta = await enviar(CADASTRO)
+    expect(resposta.status).toBe(500)
+    expect(await resposta.json()).toEqual({ erro: 'FALHA_INTERNA', mensagem: 'Falha interna' })
+  })
+})
+
+describe('POST /conta/confirmacao (3.2)', () => {
+  /** Cadastra a Maria, e devolve a cena pronta para abrir o link. */
+  async function cadastrada() {
+    const montado = montar()
+    await montado.enviar(CADASTRO)
+    return montado
+  }
+
+  it('o link certo, dentro das 24 horas: 200 EMAIL_CONFIRMADO, e a conta confirmada naquela hora', async () => {
+    const { cena, confirmar } = await cadastrada()
+    cena.agora = new Date(TERCA_8H_EM_BELEM.getTime() + 60 * 60 * 1000)
+    const resposta = await confirmar({ contaId: 'conta-1', codigo: CODIGO })
+    expect(resposta.status).toBe(200)
+    expect(await resposta.json()).toEqual(EMAIL_CONFIRMADO)
+    expect(cena.contas.confirmadas).toEqual([{ contaId: 'conta-1', em: cena.agora.getTime() }])
+    expect(logs.join('\n')).toContain('conta conta-1 confirmada')
+  })
+
+  it('o link aberto de novo, depois de confirmado: 200 JA_CONFIRMADO, sem confirmar outra vez', async () => {
+    const { cena, confirmar } = await cadastrada()
+    await confirmar({ contaId: 'conta-1', codigo: CODIGO })
+    const resposta = await confirmar({ contaId: 'conta-1', codigo: CODIGO })
+    expect(resposta.status).toBe(200)
+    expect(await resposta.json()).toEqual(JA_CONFIRMADO)
+    expect(cena.contas.confirmadas).toHaveLength(1)
+  })
+
+  it('no último milissegundo das 24 horas ainda vale; um depois, 410 LINK_VENCIDO', async () => {
+    const vale = await cadastrada()
+    vale.cena.agora = new Date(TERCA_8H_EM_BELEM.getTime() + PRAZO_DA_CONFIRMACAO_MS)
+    expect((await vale.confirmar({ contaId: 'conta-1', codigo: CODIGO })).status).toBe(200)
+
+    const venceu = await cadastrada()
+    venceu.cena.agora = new Date(TERCA_8H_EM_BELEM.getTime() + PRAZO_DA_CONFIRMACAO_MS + 1)
+    const resposta = await venceu.confirmar({ contaId: 'conta-1', codigo: CODIGO })
+    expect(resposta.status).toBe(410)
+    expect(await resposta.json()).toMatchObject({ erro: 'LINK_VENCIDO' })
+    expect(venceu.cena.contas.confirmadas).toHaveLength(0)
+  })
+
+  it('o código errado, ou a conta que não existe: 410 LINK_INVALIDO, a mesma resposta', async () => {
+    const { cena, confirmar } = await cadastrada()
+    const errado = await confirmar({ contaId: 'conta-1', codigo: 'd'.repeat(43) })
+    expect(errado.status).toBe(410)
+    expect(await errado.json()).toMatchObject({ erro: 'LINK_INVALIDO' })
+    const outra = await confirmar({ contaId: 'conta-2', codigo: CODIGO })
+    expect(outra.status).toBe(410)
+    expect(await outra.json()).toMatchObject({ erro: 'LINK_INVALIDO' })
+    expect(cena.contas.confirmadas).toHaveLength(0)
+  })
+
+  it('o corpo sem a forma do link: 400, sem gastar o limite', async () => {
+    const { cena, confirmar } = await cadastrada()
+    const antes = cena.ipsNoLimite.length
+    expect((await confirmar('{ não é json')).status).toBe(400)
+    expect((await confirmar({ contaId: 'conta-1' })).status).toBe(400)
+    expect((await confirmar({ contaId: 'conta-1', codigo: 'curto' })).status).toBe(400)
+    expect((await confirmar({ contaId: 'conta/1', codigo: CODIGO })).status).toBe(400)
+    expect(cena.ipsNoLimite).toHaveLength(antes)
+  })
+
+  it('a origem de fora: 403; o cadastro desligado: 503; o limite: 429', async () => {
+    const { cena, confirmar } = await cadastrada()
+    expect((await confirmar({ contaId: 'conta-1', codigo: CODIGO }, { Origin: 'https://outro.site' })).status).toBe(403)
+    cena.limitePassa = false
+    expect((await confirmar({ contaId: 'conta-1', codigo: CODIGO })).status).toBe(429)
+    expect(cena.contas.confirmadas).toHaveLength(0)
+
+    const desligado = montar({ cadastro: false })
+    expect((await desligado.confirmar({ contaId: 'conta-1', codigo: CODIGO })).status).toBe(503)
+  })
+
+  it('o banco que recusa: 500 sem detalhe', async () => {
+    const { cena, confirmar } = await cadastrada()
+    cena.contas.falhar = true
+    const resposta = await confirmar({ contaId: 'conta-1', codigo: CODIGO })
     expect(resposta.status).toBe(500)
     expect(await resposta.json()).toEqual({ erro: 'FALHA_INTERNA', mensagem: 'Falha interna' })
   })

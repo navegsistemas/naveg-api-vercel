@@ -31,12 +31,29 @@ export interface Config {
    * ou sem limite não existe — nem em desenvolvimento.
    */
   readonly protecaoDoEnvio: ProtecaoDoEnvio | null
+  /**
+   * A conta do Google Workspace que manda os e-mails da conta do cliente. **Opcional**: sem ela, o cadastro responde
+   * `503`, porque uma conta que não recebe o link nunca se confirma.
+   */
+  readonly envioDeEmail?: ContaDeEnvio | null
 }
 
 export interface ProtecaoDoEnvio {
   readonly segredoDoTurnstile: string
   readonly upstashUrl: string
   readonly upstashToken: string
+}
+
+/** A conta que entra no SMTP do Gmail (`email/smtp.ts`). */
+export interface ContaDeEnvio {
+  /** O login da conta Workspace no SMTP. */
+  readonly usuario: string
+  /** A senha de app dessa conta (16 letras), e não a senha dela. */
+  readonly senhaDeApp: string
+  /** O endereço que aparece como remetente: o apelido `naoresponda@`. */
+  readonly remetente: string
+  /** Para onde vão as respostas. */
+  readonly responderPara: string
 }
 
 export class ConfiguracaoIncompleta extends Error {
@@ -75,6 +92,34 @@ export function lerConfig(ambiente: Readonly<Record<string, string | undefined>>
       .filter((origem) => origem.length > 0),
     protecaoDoEnvio: lerProtecao(ambiente),
     chaveWebDoFirebase: lerChaveWeb(ambiente),
+    envioDeEmail: lerEnvioDeEmail(ambiente),
+  }
+}
+
+/** O remetente e o endereço das respostas, quando o ambiente não diz outros (B da área do cliente). */
+export const REMETENTE_PADRAO = 'naoresponda@gruponaveg.com.br'
+export const RESPOSTAS_PADRAO = 'contato@gruponaveg.com.br'
+
+const EMAIL = ['EMAIL_USUARIO', 'EMAIL_SENHA_DE_APP'] as const
+
+/** O login e a senha de app juntos, ou nenhum — a mesma régua da proteção. */
+function lerEnvioDeEmail(ambiente: Readonly<Record<string, string | undefined>>): ContaDeEnvio | null {
+  const presentes = EMAIL.filter((chave) => (ambiente[chave] ?? '').trim().length > 0)
+  if (presentes.length < EMAIL.length) {
+    const faltando = EMAIL.filter((chave) => !presentes.includes(chave))
+    console.warn(`cadastro de contas desligado: faltam ${faltando.join(', ')}`)
+    return null
+  }
+  const ouPadrao = (chave: string, padrao: string) => {
+    const valor = (ambiente[chave] ?? '').trim()
+    return valor.length > 0 ? valor : padrao
+  }
+  return {
+    usuario: (ambiente['EMAIL_USUARIO'] as string).trim(),
+    /* A senha de app vem com espaços de quatro em quatro letras na tela do Google; o SMTP a quer sem eles. */
+    senhaDeApp: (ambiente['EMAIL_SENHA_DE_APP'] as string).replace(/\s+/g, ''),
+    remetente: ouPadrao('EMAIL_REMETENTE', REMETENTE_PADRAO),
+    responderPara: ouPadrao('EMAIL_RESPONDER_PARA', RESPOSTAS_PADRAO),
   }
 }
 

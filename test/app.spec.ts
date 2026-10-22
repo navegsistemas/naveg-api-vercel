@@ -39,7 +39,26 @@ describe('a configuração', () => {
       origensPermitidas: ['https://agencia.naveg.com.br', 'http://localhost:4321'],
       chaveWebDoFirebase: null,
       protecaoDoEnvio: null,
+      envioDeEmail: null,
     })
+  })
+
+  it('o e-mail: o login e a senha de app juntos, a senha sem os espaços da tela do Google, e o remetente padrão', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const comEmail = lerConfig({
+      ...AMBIENTE_COMPLETO,
+      EMAIL_USUARIO: ' po@gruponaveg.com.br ',
+      EMAIL_SENHA_DE_APP: 'abcd efgh ijkl mnop',
+    })
+    expect(comEmail.envioDeEmail).toEqual({
+      usuario: 'po@gruponaveg.com.br',
+      senhaDeApp: 'abcdefghijklmnop',
+      remetente: 'naoresponda@gruponaveg.com.br',
+      responderPara: 'contato@gruponaveg.com.br',
+    })
+    /* Metade configurada é o mesmo que nada: sem a senha, o cadastro fica desligado. */
+    expect(lerConfig({ ...AMBIENTE_COMPLETO, EMAIL_USUARIO: 'po@gruponaveg.com.br' }).envioDeEmail).toBeNull()
+    vi.restoreAllMocks()
   })
 
   it('a chave Web é opcional, e lida aparada — sem ela o envio fica desligado, e o catálogo não', () => {

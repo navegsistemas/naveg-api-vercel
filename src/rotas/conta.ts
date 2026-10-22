@@ -1,5 +1,6 @@
 /**
- * **`POST /conta`** — o cadastro (3.1; naveg-api-vercel#30, o PR 5).
+ * **`POST /conta`** — o cadastro (3.1; naveg-api-vercel#30, o PR 5) — e **`POST /conta/confirmacao`**, o link do
+ * e-mail (3.2; o PR 6).
  *
  * O corpo é o `CadastroDaConta` do domínio mais o desafio: nome, nascimento, e-mail, celular e senha. O documento
  * não está aqui: ele vem na primeira compra (PO, 2026-10-19). As conferências seguem a ordem do custo, como na
@@ -12,17 +13,27 @@
  * 5. **o desafio**, com a ação `cadastro` → `403 DESAFIO_INVALIDO`;
  * 6. **os campos**, pelo domínio (`pendenciasDoCadastro`), campo por campo → `422 CADASTRO_INVALIDO`;
  * 7. **a senha comum ou vazada** → `422 SENHA_FRACA`, com o motivo;
- * 8. **o e-mail**, a senha resumida e a gravação.
+ * 8. **o e-mail**, a senha resumida, a gravação com o link de confirmação, e o e-mail.
  *
  * ### A resposta não revela se o e-mail já tem conta
  *
  * PO, 2026-10-21: "Não revelar". O e-mail novo e o e-mail já usado recebem **a mesma resposta**, `202 { situacao:
  * 'CONFIRA_O_EMAIL' }`. A diferença vai pelo e-mail, que só o dono lê: o novo recebe o link de confirmação; o dono
- * da conta que já existe, o aviso de que alguém tentou criar outra (os dois no PR 6). Por isso o cadastro **não
- * entra na conta**: quem cria entra pelo link (3.2, C) ou pela senha (3.2, D).
+ * da conta que já existe, o aviso de que alguém tentou criar outra. Por isso o cadastro **não entra na conta**: quem
+ * cria entra pelo link (3.2, C) ou pela senha (3.2, D).
  *
- * O tempo também não pode contar. Os dois caminhos pagam o scrypt da senha; o do e-mail novo grava, e o do já usado
- * vai mandar o aviso, no PR 6 — os dois com uma ida à rede.
+ * O tempo também não pode contar. Os dois caminhos pagam o scrypt da senha e mandam um e-mail; o do e-mail novo
+ * grava antes. **Um e-mail que não sai não muda a resposta**: o erro vai ao log, e a conta, gravada, espera o
+ * "Reenviar" (3.2, B), que vem com o PR de entrar.
+ *
+ * O link leva ao site de onde veio o cadastro — a `Origin`, já conferida no passo 1.
+ *
+ * ### A confirmação
+ *
+ * O link é `/conta/confirmar#<contaId>.<codigo>`; a página manda os dois num `POST`. Respostas: `200 EMAIL_CONFIRMADO`;
+ * `200 JA_CONFIRMADO` (o link aberto duas vezes); `410 LINK_VENCIDO` (passou das 24 horas); `410 LINK_INVALIDO`
+ * (trocado por um mais novo, ou de conta que não existe). **Confirmar ainda não entra na conta** (3.2, C): o cookie
+ * da sessão chega com o PR de entrar.
  *
  * O log leva o id da conta, nunca o nome, o e-mail ou o celular.
  */
@@ -40,10 +51,19 @@ import {
   type CadastroDaConta,
 } from '@navegsistemas/domain'
 
+import {
+  codigoConfere,
+  codigoDeLink,
+  linkDeConfirmacao,
+  PRAZO_DA_CONFIRMACAO_MS,
+  resumirCodigo,
+} from '../conta/codigo.js'
+import { emailDeCadastroRepetido, emailDeConfirmacao } from '../conta/emails.js'
 import { motivoDaSenhaFraca } from '../conta/senha-fraca.js'
 import { resumirSenha } from '../conta/senha.js'
 import { ErroDaApi } from '../erros.js'
 import type {
+  CarteiroDeEmail,
   ConsultaDeSenhaVazada,
   ContasDoCliente,
   LimitePorIp,
@@ -69,11 +89,25 @@ export interface DependenciasDoCadastro {
   readonly limite: LimitePorIp
   readonly trava: TravaPorChave
   readonly senhaVazada: ConsultaDeSenhaVazada
+  /** O e-mail do link de confirmação e o do aviso ao dono do e-mail já usado. */
+  readonly carteiro: CarteiroDeEmail
   /** O sal dos resumos do IP e do e-mail — o mesmo segredo da reserva. */
   readonly sal: string
   /** O id da conta nova. Os cenários passam um fixo. */
   readonly novoId?: () => string
+  /** O código do link. Os cenários passam um fixo. */
+  readonly novoCodigo?: () => string
 }
+
+/** A confirmação aceita, e o link aberto de novo depois dela. */
+export const EMAIL_CONFIRMADO = { situacao: 'EMAIL_CONFIRMADO' } as const
+export const JA_CONFIRMADO = { situacao: 'JA_CONFIRMADO' } as const
+
+export const LIMITE_DO_CORPO_DA_CONFIRMACAO = 1024
+
+/** O id da conta (20 caracteres base64url, `idDeContaNova`) e o código (43), como o link os leva. */
+const ID_DA_CONTA = /^[A-Za-z0-9_-]{1,40}$/
+const CODIGO = /^[A-Za-z0-9_-]{43}$/
 
 export interface ContextoDoCadastro {
   readonly origensPermitidas: readonly string[]
@@ -170,10 +204,18 @@ export function rotaDaConta(contexto: ContextoDoCadastro): Hono {
       /* 8 · o e-mail. A trava vem antes da procura: sem ela, dois toques no botão achariam o e-mail livre, os dois. */
       const email = normalizarEmail(pedido.cadastro.email) as string
       const resumoDaSenha = await resumirSenha(pedido.cadastro.senha)
-      const primeiro = await dep.trava.travar(resumirIp(email, dep.sal), TRAVA_DO_EMAIL_EM_SEGUNDOS)
-      if (!primeiro || (await dep.contas.existeComEmail(email))) {
-        /* O aviso ao dono do e-mail sai daqui, no PR 6. */
-        console.info('cadastro com e-mail que já tem conta, ou repetido em seguida: nada gravado')
+      /* O site de onde veio o pedido, para os links: a `Origin`, já conferida no passo 1. */
+      const site = c.req.header('origin') as string
+      if (!(await dep.trava.travar(resumirIp(email, dep.sal), TRAVA_DO_EMAIL_EM_SEGUNDOS))) {
+        /* O segundo toque no botão: o primeiro já cuida do e-mail, e um segundo e-mail só confundiria. */
+        console.info('cadastro repetido em seguida: nada gravado')
+        return c.json(CONFIRA_O_EMAIL, 202)
+      }
+      if (await dep.contas.existeComEmail(email)) {
+        if (!(await dep.carteiro.enviar(emailDeCadastroRepetido(email, site)))) {
+          console.error('o aviso de cadastro repetido não saiu')
+        }
+        console.info('cadastro com e-mail que já tem conta: nada gravado, o dono avisado')
         return c.json(CONFIRA_O_EMAIL, 202)
       }
 
@@ -185,17 +227,76 @@ export function rotaDaConta(contexto: ContextoDoCadastro): Hono {
         console.error('cadastro sem pendência que o domínio não montou')
         throw new ErroDaApi(500, 'FALHA_INTERNA', 'Falha interna')
       }
+      const codigo = (dep.novoCodigo ?? codigoDeLink)()
       const gravada = await dep.contas.criar(
         contaId,
         loteDaContaNova(resultado.conta),
         { resumoDaSenha, geracao: 0, errosSeguidos: 0 },
+        { resumoDoCodigo: resumirCodigo(codigo), valeAte: criadaEm + PRAZO_DA_CONFIRMACAO_MS },
         criadaEm,
       )
       if (!gravada) throw new ErroDaApi(500, 'FALHA_INTERNA', 'Falha interna')
-
-      /* O link de confirmação sai daqui, no PR 6. */
       console.info(`conta ${contaId} criada`)
+
+      const link = linkDeConfirmacao(site, contaId, codigo)
+      if (await dep.carteiro.enviar(emailDeConfirmacao(email, resultado.conta.nome, link))) {
+        await dep.contas.registrarEnvio(contaId, 'CONFIRMACAO', criadaEm)
+      } else {
+        console.error(`conta ${contaId}: o link de confirmação não saiu`)
+      }
       return c.json(CONFIRA_O_EMAIL, 202)
+    },
+  )
+
+  /* A confirmação do e-mail: o link aberto (3.2). */
+  rota.post(
+    '/confirmacao',
+    async (c, proximo) => {
+      conferirOrigem(c.req.header('origin'), contexto.origensPermitidas)
+      if (contexto.cadastro === null) {
+        throw new ErroDaApi(503, 'CADASTRO_INDISPONIVEL', 'Cadastro de contas não configurado')
+      }
+      await proximo()
+    },
+    bodyLimit({
+      maxSize: LIMITE_DO_CORPO_DA_CONFIRMACAO,
+      onError: () => {
+        throw new ErroDaApi(413, 'CORPO_INVALIDO', 'Corpo grande demais')
+      },
+    }),
+    async (c) => {
+      const dep = contexto.cadastro as DependenciasDoCadastro
+
+      let bruto: unknown
+      try {
+        bruto = await c.req.json()
+      } catch {
+        throw new ErroDaApi(400, 'CORPO_INVALIDO', 'O corpo não é JSON')
+      }
+      const { contaId, codigo } = (typeof bruto === 'object' && bruto !== null ? bruto : {}) as Record<string, unknown>
+      if (typeof contaId !== 'string' || !ID_DA_CONTA.test(contaId) || typeof codigo !== 'string' || !CODIGO.test(codigo)) {
+        throw new ErroDaApi(400, 'CORPO_INVALIDO', 'O corpo não é uma confirmação')
+      }
+
+      /* O mesmo contador do cadastro: quem confirma acabou de se cadastrar, e o código de 32 bytes não se adivinha. */
+      const ip = ipDaRequisicao((nome) => c.req.header(nome))
+      if (!(await dep.limite.registrar(resumirIp(ip, dep.sal)))) {
+        throw new ErroDaApi(429, 'LIMITE_EXCEDIDO', 'Pedidos demais deste endereço')
+      }
+
+      const conta = await dep.contas.paraConfirmar(contaId)
+      if (conta === null) throw new ErroDaApi(410, 'LINK_INVALIDO', 'Este link não vale')
+      /* Já confirmada: o link foi aberto de novo (o segundo toque, o e-mail aberto outra vez). */
+      if (conta.confirmadaEm !== null) return c.json(JA_CONFIRMADO, 200)
+      if (conta.confirmacao === null || !codigoConfere(codigo, conta.confirmacao.resumoDoCodigo)) {
+        throw new ErroDaApi(410, 'LINK_INVALIDO', 'Este link não vale')
+      }
+      const agora = contexto.relogio().getTime()
+      if (agora > conta.confirmacao.valeAte) throw new ErroDaApi(410, 'LINK_VENCIDO', 'Este link venceu')
+
+      if (!(await dep.contas.confirmar(contaId, agora))) throw new ErroDaApi(500, 'FALHA_INTERNA', 'Falha interna')
+      console.info(`conta ${contaId} confirmada`)
+      return c.json(EMAIL_CONFIRMADO, 200)
     },
   )
 
