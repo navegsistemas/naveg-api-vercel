@@ -66,6 +66,12 @@ class Contas implements ContasDoCliente {
   async confirmar() {
     return true
   }
+  async paraReenviar() {
+    return null
+  }
+  async trocarConfirmacao() {
+    return true
+  }
   async paraEntrar(email: string) {
     this.procuras.push(email)
     return email === 'maria@exemplo.com.br' ? this.conta : null

@@ -284,6 +284,19 @@ describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PU
     expect(await contas.paraConfirmar('conta-1')).toEqual({ confirmadaEm: null, confirmacao, ativa: true, geracao: 0 })
     expect(await contas.paraConfirmar('nao-existe')).toBeNull()
 
+    /* O "Reenviar" (3.2, B): a conta achada pelo e-mail, e o link novo por cima do anterior — sob as Rules. */
+    expect(await contas.paraReenviar('maria@exemplo.com.br')).toEqual({
+      contaId: 'conta-1',
+      nome: 'Maria Souza',
+      confirmada: false,
+    })
+    expect(await contas.paraReenviar('ninguem@exemplo.com.br')).toBeNull()
+    const reenviada = { resumoDoCodigo: 'b'.repeat(64), valeAte: 1_792_690_000_000 }
+    expect(await contas.trocarConfirmacao('conta-1', reenviada)).toBe(true)
+    expect((await banco.doc(`${base}/contasDeCliente/conta-1/segredos/confirmacao`).get()).data()).toEqual(reenviada)
+    expect(await deOutra.trocarConfirmacao('conta-1', reenviada)).toBe(false)
+    expect(await contas.trocarConfirmacao('conta-1', confirmacao)).toBe(true)
+
     expect(await contas.confirmar('conta-1', 1_792_600_300_000)).toBe(true)
     expect((await banco.doc(`${base}/contasDeCliente/conta-1`).get()).data()).toMatchObject({
       confirmadaEm: 1_792_600_300_000,

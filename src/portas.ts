@@ -75,6 +75,14 @@ export interface ContaParaConfirmar {
   readonly geracao: number
 }
 
+/** O que o "Reenviar" precisa da conta achada pelo e-mail (3.2, B). */
+export interface ContaParaReenviar {
+  readonly contaId: string
+  /** Para o "Olá" do e-mail. */
+  readonly nome: string
+  readonly confirmada: boolean
+}
+
 /** O que entrar precisa da conta achada pelo e-mail (3.3). */
 export interface ContaParaEntrar {
   readonly contaId: string
@@ -116,6 +124,10 @@ export interface ContasDoCliente {
    * recusou.
    */
   confirmar(contaId: string, em: number): Promise<boolean>
+  /** A conta deste e-mail (normalizado), para mandar o link de novo, ou `null` quando não há. */
+  paraReenviar(email: string): Promise<ContaParaReenviar | null>
+  /** Troca o link guardado por um novo: o anterior deixa de valer (3.2, B). `false`: o banco recusou. */
+  trocarConfirmacao(contaId: string, confirmacao: SegredoDeConfirmacao): Promise<boolean>
   /** A conta deste e-mail (normalizado), com os segredos de acesso, ou `null` quando não há. */
   paraEntrar(email: string): Promise<ContaParaEntrar | null>
   /**
