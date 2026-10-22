@@ -67,3 +67,14 @@ export async function conferirSenha(senha: string, guardado: string): Promise<bo
   const calculado = await scrypt(senha, lido.sal, lido.parametros)
   return calculado.length === lido.resumo.length && timingSafeEqual(calculado, lido.resumo)
 }
+
+let ficticio: Promise<string> | null = null
+
+/**
+ * **O resumo contra o qual o e-mail sem conta confere a senha** (ADR-0003, seção 2): o mesmo scrypt, para a resposta
+ * rápida não dizer que o e-mail não tem conta. A senha dele é aleatória: nada confere com ela.
+ */
+export function resumoFicticio(): Promise<string> {
+  ficticio ??= resumirSenha(randomBytes(16).toString('hex'))
+  return ficticio
+}

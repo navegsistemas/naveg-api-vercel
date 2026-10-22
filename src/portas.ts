@@ -69,6 +69,27 @@ export interface ContaParaConfirmar {
   readonly confirmadaEm: number | null
   /** `null`: não há link guardado — já usado, ou nunca mandado. */
   readonly confirmacao: SegredoDeConfirmacao | null
+  /** A conta desativada confirma o e-mail, mas não entra (3.3, F). */
+  readonly ativa: boolean
+  /** A geração da sessão, para o cookie de quem confirma (3.2, C). */
+  readonly geracao: number
+}
+
+/** O que entrar precisa da conta achada pelo e-mail (3.3). */
+export interface ContaParaEntrar {
+  readonly contaId: string
+  readonly ativa: boolean
+  readonly confirmada: boolean
+  /** Epoch millis até quando as tentativas esperam, ou `null` (3.3, C). */
+  readonly bloqueadaAte: number | null
+  readonly acesso: SegredoDeAcesso
+}
+
+/** O que a sessão confere a cada pedido de quem entrou (ADR-0003, seção 1). */
+export interface ContaDaSessao {
+  readonly ativa: boolean
+  readonly confirmada: boolean
+  readonly geracao: number
 }
 
 /** As contas do site, no cadastro da agência. */
@@ -95,6 +116,17 @@ export interface ContasDoCliente {
    * recusou.
    */
   confirmar(contaId: string, em: number): Promise<boolean>
+  /** A conta deste e-mail (normalizado), com os segredos de acesso, ou `null` quando não há. */
+  paraEntrar(email: string): Promise<ContaParaEntrar | null>
+  /**
+   * Um erro de senha: grava os erros seguidos nos segredos e, quando `bloqueadaAte` vem, o bloqueio na conta, onde o
+   * painel o vê e pode liberar (`LIBERAR_TENTATIVAS`). `false`: o banco recusou.
+   */
+  registrarErroDeSenha(contaId: string, errosSeguidos: number, bloqueadaAte: number | null): Promise<boolean>
+  /** A entrada certa: zera os erros seguidos e tira o bloqueio vencido, se houver. `false`: o banco recusou. */
+  registrarEntrada(contaId: string, tinhaBloqueio: boolean): Promise<boolean>
+  /** A conta e a geração da sessão, lidas em paralelo, ou `null` quando a conta não existe mais. */
+  paraSessao(contaId: string): Promise<ContaDaSessao | null>
 }
 
 /** Uma mensagem pronta para sair (`conta/emails.ts`). */

@@ -20,6 +20,7 @@
  */
 import {
   collection,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -34,7 +35,7 @@ import {
 
 import { contaDoDocumento } from '@navegsistemas/domain'
 
-import type { ContasDoCliente, SegredoDeConfirmacao } from '../portas.js'
+import type { ContasDoCliente, SegredoDeAcesso, SegredoDeConfirmacao } from '../portas.js'
 
 export const COLECAO_DE_CONTAS = 'contasDeCliente'
 export const SEGREDO_DE_ACESSO = 'segredos/acesso'
@@ -90,17 +91,24 @@ export function contasNoFirestore(obter: () => Promise<Firestore>, agenciaId: st
 
     async paraConfirmar(contaId) {
       const db = await obter()
-      const [conta, segredo] = await Promise.all([
+      const [conta, segredo, acesso] = await Promise.all([
         getDoc(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}`))),
         getDoc(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}/${SEGREDO_DE_CONFIRMACAO}`))),
+        getDoc(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}/${SEGREDO_DE_ACESSO}`))),
       ])
       if (!conta.exists()) return null
       const lida = contaDoDocumento(contaId, conta.data())
-      if (lida === null) {
+      const segredos = segredoDeAcesso(acesso.data())
+      if (lida === null || segredos === null) {
         console.error(`conta ${contaId} sem a forma da regra: confirmação recusada`)
         return null
       }
-      return { confirmadaEm: lida.confirmadaEm, confirmacao: segredoDeConfirmacao(segredo.data()) }
+      return {
+        confirmadaEm: lida.confirmadaEm,
+        confirmacao: segredoDeConfirmacao(segredo.data()),
+        ativa: lida.ativa,
+        geracao: segredos.geracao,
+      }
     },
 
     async confirmar(contaId, em) {
@@ -121,7 +129,84 @@ export function contasNoFirestore(obter: () => Promise<Firestore>, agenciaId: st
         return false
       }
     },
+
+    async paraEntrar(email) {
+      const db = await obter()
+      const consulta = query(collection(db, daAgencia(COLECAO_DE_CONTAS)), where('email', '==', email), limit(1))
+      const achadas = await getDocs(consulta)
+      const conta = achadas.docs[0]
+      if (conta === undefined) return null
+      const lida = contaDoDocumento(conta.id, conta.data())
+      const acesso = segredoDeAcesso(
+        (await getDoc(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${conta.id}/${SEGREDO_DE_ACESSO}`)))).data(),
+      )
+      if (lida === null || acesso === null) {
+        console.error(`conta ${conta.id} sem a forma da regra: entrada recusada`)
+        return null
+      }
+      return {
+        contaId: conta.id,
+        ativa: lida.ativa,
+        confirmada: lida.confirmadaEm !== null,
+        bloqueadaAte: lida.bloqueadaAte,
+        acesso,
+      }
+    },
+
+    async registrarErroDeSenha(contaId, errosSeguidos, bloqueadaAte) {
+      try {
+        const db = await obter()
+        const escritas = writeBatch(db)
+        escritas.update(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}/${SEGREDO_DE_ACESSO}`)), { errosSeguidos })
+        if (bloqueadaAte !== null) {
+          escritas.update(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}`)), { bloqueadaAte })
+        }
+        await escritas.commit()
+        return true
+      } catch (erro) {
+        console.error(`conta ${contaId}: erro de senha não registrado, código ${codigoDoErro(erro)}`)
+        return false
+      }
+    },
+
+    async registrarEntrada(contaId, tinhaBloqueio) {
+      try {
+        const db = await obter()
+        const escritas = writeBatch(db)
+        escritas.update(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}/${SEGREDO_DE_ACESSO}`)), { errosSeguidos: 0 })
+        if (tinhaBloqueio) {
+          /* Ausente, e não `null`: o decodificador do KMP prefere a chave que não está (`conta-do-cliente.ts`). */
+          escritas.update(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}`)), { bloqueadaAte: deleteField() })
+        }
+        await escritas.commit()
+        return true
+      } catch (erro) {
+        console.error(`conta ${contaId}: entrada não registrada, código ${codigoDoErro(erro)}`)
+        return false
+      }
+    },
+
+    async paraSessao(contaId) {
+      const db = await obter()
+      const [conta, acesso] = await Promise.all([
+        getDoc(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}`))),
+        getDoc(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}/${SEGREDO_DE_ACESSO}`))),
+      ])
+      if (!conta.exists()) return null
+      const lida = contaDoDocumento(contaId, conta.data())
+      const segredos = segredoDeAcesso(acesso.data())
+      if (lida === null || segredos === null) return null
+      return { ativa: lida.ativa, confirmada: lida.confirmadaEm !== null, geracao: segredos.geracao }
+    },
   }
+}
+
+/** Os segredos de acesso lidos → a forma da porta, ou `null` quando faltam (ou não têm a forma esperada). */
+function segredoDeAcesso(dado: unknown): SegredoDeAcesso | null {
+  if (typeof dado !== 'object' || dado === null) return null
+  const { resumoDaSenha, geracao, errosSeguidos } = dado as Record<string, unknown>
+  if (typeof resumoDaSenha !== 'string' || typeof geracao !== 'number' || typeof errosSeguidos !== 'number') return null
+  return { resumoDaSenha, geracao, errosSeguidos }
 }
 
 function codigoDoErro(erro: unknown): string {

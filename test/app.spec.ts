@@ -40,7 +40,24 @@ describe('a configuração', () => {
       chaveWebDoFirebase: null,
       protecaoDoEnvio: null,
       envioDeEmail: null,
+      segredosDaSessao: null,
     })
+  })
+
+  it('o segredo da sessão: 32 caracteres ou mais; o anterior, só se tiver o mesmo tamanho', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const atual = 'a'.repeat(43)
+    expect(lerConfig({ ...AMBIENTE_COMPLETO, SEGREDO_DA_SESSAO: ` ${atual} ` }).segredosDaSessao).toEqual({
+      atual,
+      anterior: null,
+    })
+    expect(
+      lerConfig({ ...AMBIENTE_COMPLETO, SEGREDO_DA_SESSAO: atual, SEGREDO_DA_SESSAO_ANTERIOR: 'b'.repeat(43) })
+        .segredosDaSessao,
+    ).toEqual({ atual, anterior: 'b'.repeat(43) })
+    /* Curto se adivinha: o mesmo que nenhum, e entrar fica desligado. */
+    expect(lerConfig({ ...AMBIENTE_COMPLETO, SEGREDO_DA_SESSAO: 'curto' }).segredosDaSessao).toBeNull()
+    vi.restoreAllMocks()
   })
 
   it('o e-mail: o login e a senha de app juntos, a senha sem os espaços da tela do Google, e o remetente padrão', () => {

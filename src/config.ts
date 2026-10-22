@@ -36,6 +36,17 @@ export interface Config {
    * `503`, porque uma conta que não recebe o link nunca se confirma.
    */
   readonly envioDeEmail?: ContaDeEnvio | null
+  /**
+   * O segredo que assina o cookie da sessão (ADR-0003, seção 1), e o anterior, durante uma troca. **Opcional**: sem
+   * ele, entrar responde `503`, e quem confirma o e-mail não fica dentro da conta.
+   */
+  readonly segredosDaSessao?: SegredosDaSessao | null
+}
+
+export interface SegredosDaSessao {
+  readonly atual: string
+  /** O segredo de antes de uma troca, que ainda confere enquanto os cookies antigos vencem. */
+  readonly anterior: string | null
 }
 
 export interface ProtecaoDoEnvio {
@@ -93,7 +104,26 @@ export function lerConfig(ambiente: Readonly<Record<string, string | undefined>>
     protecaoDoEnvio: lerProtecao(ambiente),
     chaveWebDoFirebase: lerChaveWeb(ambiente),
     envioDeEmail: lerEnvioDeEmail(ambiente),
+    segredosDaSessao: lerSegredosDaSessao(ambiente),
   }
+}
+
+/** Um segredo de sessão curto se adivinha: 32 bytes em base64url são 43 caracteres. */
+export const SEGREDO_MAIS_CURTO = 32
+
+/** O segredo atual, e o anterior se houver. Curto demais é o mesmo que nenhum — e a partida diz. */
+function lerSegredosDaSessao(ambiente: Readonly<Record<string, string | undefined>>): SegredosDaSessao | null {
+  const atual = (ambiente['SEGREDO_DA_SESSAO'] ?? '').trim()
+  if (atual.length < SEGREDO_MAIS_CURTO) {
+    console.warn(
+      atual.length === 0
+        ? 'entrar na conta desligado: falta SEGREDO_DA_SESSAO'
+        : `entrar na conta desligado: SEGREDO_DA_SESSAO com menos de ${SEGREDO_MAIS_CURTO} caracteres`,
+    )
+    return null
+  }
+  const anterior = (ambiente['SEGREDO_DA_SESSAO_ANTERIOR'] ?? '').trim()
+  return { atual, anterior: anterior.length >= SEGREDO_MAIS_CURTO ? anterior : null }
 }
 
 /** O remetente e o endereço das respostas, quando o ambiente não diz outros (B da área do cliente). */

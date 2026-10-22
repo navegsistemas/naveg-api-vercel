@@ -38,6 +38,16 @@ export const CODIGOS = [
   'LINK_INVALIDO',
   /** O link de confirmação passou das 24 horas (3.2, B). */
   'LINK_VENCIDO',
+  /** Entrar não está configurado neste ambiente (falta o segredo da sessão). */
+  'ENTRAR_INDISPONIVEL',
+  /** "E-mail ou senha não conferem" — a mesma resposta nos dois casos (3.3, B). */
+  'CREDENCIAIS_INVALIDAS',
+  /** 5 erros seguidos no mesmo e-mail: 15 minutos de espera (3.3, C). */
+  'TENTATIVAS_DEMAIS',
+  /** A senha certa de uma conta desativada pelo atendimento (3.3, F). */
+  'CONTA_DESATIVADA',
+  /** O pedido pede quem entrou, e o cookie falta, venceu ou não vale mais. */
+  'SEM_SESSAO',
   /** Qualquer coisa nossa que deu errado. */
   'FALHA_INTERNA',
 ] as const

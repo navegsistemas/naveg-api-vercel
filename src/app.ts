@@ -24,6 +24,7 @@ import { rotaDaConta, type DependenciasDoCadastro } from './rotas/conta.js'
 import { rotaDeEco } from './rotas/eco.js'
 import { rotaDeReservas, type DependenciasDoEnvio } from './rotas/reservas.js'
 import { rotaDeSaude } from './rotas/saude.js'
+import { rotaDaSessao, type DependenciasDoEntrar } from './rotas/sessao.js'
 
 export interface Dependencias {
   readonly config: Config
@@ -32,10 +33,19 @@ export interface Dependencias {
   readonly envio: DependenciasDoEnvio | null
   /** O que o `POST /conta` precisa. Ausente ou `null`: o cadastro não está configurado, e a rota responde `503`. */
   readonly cadastro?: DependenciasDoCadastro | null
+  /** O que entrar e a sessão precisam. Ausente ou `null`: entrar responde `503`; sair funciona sempre. */
+  readonly entrar?: DependenciasDoEntrar | null
   readonly relogio?: Relogio
 }
 
-export function criarApp({ config, catalogo, envio, cadastro = null, relogio = () => new Date() }: Dependencias): Hono {
+export function criarApp({
+  config,
+  catalogo,
+  envio,
+  cadastro = null,
+  entrar = null,
+  relogio = () => new Date(),
+}: Dependencias): Hono {
   const app = new Hono()
 
   app.use(
@@ -62,6 +72,7 @@ export function criarApp({ config, catalogo, envio, cadastro = null, relogio = (
     }),
   )
   app.route('/conta', rotaDaConta({ origensPermitidas: config.origensPermitidas, relogio, cadastro }))
+  app.route('/conta', rotaDaSessao({ origensPermitidas: config.origensPermitidas, relogio, entrar }))
   app.route('/eco', rotaDeEco())
 
   app.notFound((c) => {
