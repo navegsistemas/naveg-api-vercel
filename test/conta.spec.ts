@@ -13,6 +13,7 @@ import { criarApp } from '../src/app.js'
 import type { Config } from '../src/config.js'
 import { PRAZO_DA_CONFIRMACAO_MS, resumirCodigo } from '../src/conta/codigo.js'
 import { conferirSenha } from '../src/conta/senha.js'
+import { lerSessao } from '../src/conta/sessao.js'
 import type {
   CarteiroDeEmail,
   ConsultaDeSenhaVazada,
@@ -86,8 +87,21 @@ class Contas implements ContasDoCliente {
   ) {
     if (this.falhar) return false
     this.gravadas.push({ contaId, lote, acesso, confirmacao, criadaEm })
-    this.estado.set(contaId, { confirmadaEm: null, confirmacao })
+    this.estado.set(contaId, { confirmadaEm: null, confirmacao, ativa: true, geracao: 0 })
     return true
+  }
+  /* Entrar tem os cenários dele (`sessao.spec.ts`); aqui, a conta só é criada e confirmada. */
+  async paraEntrar() {
+    return null
+  }
+  async registrarErroDeSenha() {
+    return true
+  }
+  async registrarEntrada() {
+    return true
+  }
+  async paraSessao() {
+    return null
   }
   async registrarEnvio(contaId: string, tipo: TipoDeLink, em: number) {
     this.envios.push({ contaId, tipo, em })
@@ -98,7 +112,8 @@ class Contas implements ContasDoCliente {
   async confirmar(contaId: string, em: number) {
     if (this.falhar) return false
     this.confirmadas.push({ contaId, em })
-    this.estado.set(contaId, { confirmadaEm: em, confirmacao: null })
+    const antes = this.estado.get(contaId) as ContaParaConfirmar
+    this.estado.set(contaId, { ...antes, confirmadaEm: em, confirmacao: null })
     return true
   }
 }
@@ -117,7 +132,10 @@ class Carteiro implements CarteiroDeEmail {
 /** O código fixo dos cenários: 43 caracteres base64url, como os de verdade. */
 const CODIGO = 'c'.repeat(43)
 
-function montar(opcoes: { cadastro?: false; contas?: Contas } = {}) {
+/** Os segredos da sessão dos cenários: 32 caracteres ou mais, como a configuração pede. */
+const SEGREDOS = { atual: 's'.repeat(43), anterior: null }
+
+function montar(opcoes: { cadastro?: false; contas?: Contas; semSessao?: true } = {}) {
   const cena = {
     agora: TERCA_8H_EM_BELEM,
     carteiro: new Carteiro(),
@@ -169,6 +187,7 @@ function montar(opcoes: { cadastro?: false; contas?: Contas } = {}) {
           sal: 'sal-de-teste',
           novoId: () => 'conta-1',
           novoCodigo: () => CODIGO,
+          segredosDaSessao: opcoes.semSessao ? null : SEGREDOS,
         }
   const app = criarApp({ config: CONFIG, catalogo, envio: null, cadastro, relogio: () => cena.agora })
 
@@ -458,6 +477,36 @@ describe('POST /conta/confirmacao (3.2)', () => {
     expect(await resposta.json()).toEqual(EMAIL_CONFIRMADO)
     expect(cena.contas.confirmadas).toEqual([{ contaId: 'conta-1', em: cena.agora.getTime() }])
     expect(logs.join('\n')).toContain('conta conta-1 confirmada')
+  })
+
+  it('quem confirma fica dentro da conta (3.2, C): o cookie da sessão, assinado, com a geração da conta', async () => {
+    const { cena, confirmar } = await cadastrada()
+    const resposta = await confirmar({ contaId: 'conta-1', codigo: CODIGO })
+    const cookie = resposta.headers.get('set-cookie') as string
+    expect(cookie).toMatch(/^__Host-sessao=v1\.conta-1\.\d+\.0\.[A-Za-z0-9_-]+; Path=\/; Secure; HttpOnly; SameSite=Lax; Max-Age=1209600$/)
+    const valor = cookie.split(';')[0]?.slice('__Host-sessao='.length) as string
+    expect(lerSessao(valor, SEGREDOS, cena.agora.getTime())).toEqual({
+      contaId: 'conta-1',
+      emitidaEm: cena.agora.getTime(),
+      geracao: 0,
+    })
+  })
+
+  it('a conta desativada confirma o e-mail, mas não entra; sem o segredo da sessão, também não', async () => {
+    const desativada = await cadastrada()
+    desativada.cena.contas.estado.set('conta-1', {
+      ...(desativada.cena.contas.estado.get('conta-1') as ContaParaConfirmar),
+      ativa: false,
+    })
+    const resposta = await desativada.confirmar({ contaId: 'conta-1', codigo: CODIGO })
+    expect(resposta.status).toBe(200)
+    expect(resposta.headers.get('set-cookie')).toBeNull()
+
+    const semSessao = montar({ semSessao: true })
+    await semSessao.enviar(CADASTRO)
+    const semCookie = await semSessao.confirmar({ contaId: 'conta-1', codigo: CODIGO })
+    expect(semCookie.status).toBe(200)
+    expect(semCookie.headers.get('set-cookie')).toBeNull()
   })
 
   it('o link aberto de novo, depois de confirmado: 200 JA_CONFIRMADO, sem confirmar outra vez', async () => {

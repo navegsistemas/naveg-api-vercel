@@ -29,8 +29,13 @@ import { contasNoFirestore } from '../src/firestore/conta-firestore.js'
 import { loteNoFirestore, reservaNoFirestore } from '../src/firestore/reserva-firestore.js'
 import { sessaoDoServicoNoFirebase, UID_DO_SERVICO } from '../src/firestore/servico.js'
 import { limiteNoUpstash, travaNoUpstash } from '../src/protecao/limite-upstash.js'
-import { ACAO_DO_CADASTRO, desafioNaCloudflare } from '../src/protecao/turnstile.js'
+import { ACAO_DO_CADASTRO, ACAO_DO_ENTRAR, desafioNaCloudflare } from '../src/protecao/turnstile.js'
 import type { DependenciasDoCadastro } from '../src/rotas/conta.js'
+import {
+  ERROS_ATE_ESPERAR,
+  ESPERA_DAS_TENTATIVAS_MS,
+  type DependenciasDoEntrar,
+} from '../src/rotas/sessao.js'
 import type { DependenciasDoEnvio } from '../src/rotas/reservas.js'
 
 const config = lerConfig()
@@ -64,21 +69,44 @@ const envio: DependenciasDoEnvio | null =
 /* O cadastro pede as mesmas peças da reserva — o desafio, o limite e a sessão do serviço —, com a ação e o
    contador dele; e o e-mail, porque uma conta que não recebe o link nunca se confirma. */
 const contaDeEnvio = config.envioDeEmail ?? null
+const segredosDaSessao = config.segredosDaSessao ?? null
+const contas = servico === null ? null : contasNoFirestore(servico, config.empresaId)
 const cadastro: DependenciasDoCadastro | null =
-  protecao === null || servico === null || contaDeEnvio === null
+  protecao === null || contas === null || contaDeEnvio === null
     ? null
     : {
-        contas: contasNoFirestore(servico, config.empresaId),
+        contas,
         desafio: desafioNaCloudflare(protecao.segredoDoTurnstile, undefined, ACAO_DO_CADASTRO),
         limite: limiteNoUpstash(protecao.upstashUrl, protecao.upstashToken, undefined, undefined, 'naveg:cadastro'),
         trava: travaNoUpstash(protecao.upstashUrl, protecao.upstashToken, 'naveg:cadastro:email'),
         senhaVazada: senhaVazadaNoHibp(),
         carteiro: carteiroNoWorkspace(contaDeEnvio),
         sal: protecao.upstashToken,
+        segredosDaSessao,
+      }
+
+/* Entrar pede a sessão do serviço, a proteção e o segredo que assina o cookie. Os contadores são do entrar: o por
+   IP, com o teto da reserva, e o do e-mail sem conta, com o teto das tentativas da conta (3.3, C). */
+const entrar: DependenciasDoEntrar | null =
+  protecao === null || contas === null || segredosDaSessao === null
+    ? null
+    : {
+        contas,
+        desafio: desafioNaCloudflare(protecao.segredoDoTurnstile, undefined, ACAO_DO_ENTRAR),
+        limite: limiteNoUpstash(protecao.upstashUrl, protecao.upstashToken, undefined, undefined, 'naveg:entrar'),
+        limiteDoEmail: limiteNoUpstash(
+          protecao.upstashUrl,
+          protecao.upstashToken,
+          { teto: ERROS_ATE_ESPERAR - 1, janelaEmSegundos: ESPERA_DAS_TENTATIVAS_MS / 1000 },
+          undefined,
+          'naveg:entrar:email',
+        ),
+        segredos: segredosDaSessao,
+        sal: protecao.upstashToken,
       }
 
 /* O `handle` do `@hono/node-server/vercel` (1.x) era só isto, e a 2.x tirou o atalho: o ouvinte de requisição do
    Node, que traduz o `IncomingMessage` da função no `Request` do app. */
-const app = criarApp({ config, catalogo: catalogoDoFirestore(leitura, config.empresaId), envio, cadastro })
+const app = criarApp({ config, catalogo: catalogoDoFirestore(leitura, config.empresaId), envio, cadastro, entrar })
 
 export default getRequestListener(app.fetch)

@@ -281,7 +281,7 @@ describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PU
       ultimoEnvioTipo: 'CONFIRMACAO',
       ultimoEnvioEm: 1_792_600_000_500,
     })
-    expect(await contas.paraConfirmar('conta-1')).toEqual({ confirmadaEm: null, confirmacao })
+    expect(await contas.paraConfirmar('conta-1')).toEqual({ confirmadaEm: null, confirmacao, ativa: true, geracao: 0 })
     expect(await contas.paraConfirmar('nao-existe')).toBeNull()
 
     expect(await contas.confirmar('conta-1', 1_792_600_300_000)).toBe(true)
@@ -290,6 +290,40 @@ describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PU
     })
     expect((await banco.doc(`${base}/contasDeCliente/conta-1/segredos/confirmacao`).get()).exists).toBe(false)
     expect((await banco.doc(`${base}/resumos/contasDeCliente`).get()).data()).toMatchObject({ total: 2, confirmadas: 1 })
-    expect(await contas.paraConfirmar('conta-1')).toEqual({ confirmadaEm: 1_792_600_300_000, confirmacao: null })
+    expect(await contas.paraConfirmar('conta-1')).toEqual({
+      confirmadaEm: 1_792_600_300_000,
+      confirmacao: null,
+      ativa: true,
+      geracao: 0,
+    })
+
+    /* O PR 7: entrar acha a conta pelo e-mail; o erro de senha e o bloqueio, e a entrada que os tira — sob as Rules. */
+    expect(await contas.paraEntrar('maria@exemplo.com.br')).toEqual({
+      contaId: 'conta-1',
+      ativa: true,
+      confirmada: true,
+      bloqueadaAte: null,
+      acesso,
+    })
+    expect(await contas.paraEntrar('ninguem@exemplo.com.br')).toBeNull()
+
+    expect(await contas.registrarErroDeSenha('conta-1', 3, null)).toBe(true)
+    expect((await banco.doc(`${base}/contasDeCliente/conta-1/segredos/acesso`).get()).data()).toMatchObject({
+      errosSeguidos: 3,
+    })
+    expect(await contas.registrarErroDeSenha('conta-1', 0, 1_792_600_900_000)).toBe(true)
+    expect((await banco.doc(`${base}/contasDeCliente/conta-1`).get()).data()).toMatchObject({
+      bloqueadaAte: 1_792_600_900_000,
+    })
+    expect((await contas.paraEntrar('maria@exemplo.com.br'))?.bloqueadaAte).toBe(1_792_600_900_000)
+
+    expect(await contas.registrarEntrada('conta-1', true)).toBe(true)
+    expect((await banco.doc(`${base}/contasDeCliente/conta-1`).get()).data()).not.toHaveProperty('bloqueadaAte')
+    expect((await banco.doc(`${base}/contasDeCliente/conta-1/segredos/acesso`).get()).data()).toMatchObject({
+      errosSeguidos: 0,
+    })
+
+    expect(await contas.paraSessao('conta-1')).toEqual({ ativa: true, confirmada: true, geracao: 0 })
+    expect(await contas.paraSessao('nao-existe')).toBeNull()
   }, 30_000)
 })

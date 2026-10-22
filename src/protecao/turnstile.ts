@@ -23,6 +23,9 @@ export const ACAO_DO_DESAFIO = 'reserva'
 /** A ação que o widget do cadastro declara (3.1). */
 export const ACAO_DO_CADASTRO = 'cadastro'
 
+/** A ação que o widget do entrar declara (3.3). */
+export const ACAO_DO_ENTRAR = 'entrar'
+
 export type Buscar = (url: string, init?: RequestInit) => Promise<Response>
 
 export function desafioNaCloudflare(

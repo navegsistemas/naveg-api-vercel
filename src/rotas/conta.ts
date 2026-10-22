@@ -24,7 +24,7 @@
  *
  * O tempo também não pode contar. Os dois caminhos pagam o scrypt da senha e mandam um e-mail; o do e-mail novo
  * grava antes. **Um e-mail que não sai não muda a resposta**: o erro vai ao log, e a conta, gravada, espera o
- * "Reenviar" (3.2, B), que vem com o PR de entrar.
+ * "Reenviar" (3.2, B), que vem num PR próprio, depois do de entrar.
  *
  * O link leva ao site de onde veio o cadastro — a `Origin`, já conferida no passo 1.
  *
@@ -32,8 +32,8 @@
  *
  * O link é `/conta/confirmar#<contaId>.<codigo>`; a página manda os dois num `POST`. Respostas: `200 EMAIL_CONFIRMADO`;
  * `200 JA_CONFIRMADO` (o link aberto duas vezes); `410 LINK_VENCIDO` (passou das 24 horas); `410 LINK_INVALIDO`
- * (trocado por um mais novo, ou de conta que não existe). **Confirmar ainda não entra na conta** (3.2, C): o cookie
- * da sessão chega com o PR de entrar.
+ * (trocado por um mais novo, ou de conta que não existe). **Quem confirma fica dentro da conta** (3.2, C): a resposta
+ * leva o cookie da sessão, quando o segredo dela está configurado e a conta está ativa.
  *
  * O log leva o id da conta, nunca o nome, o e-mail ou o celular.
  */
@@ -59,6 +59,7 @@ import {
   resumirCodigo,
 } from '../conta/codigo.js'
 import { emailDeCadastroRepetido, emailDeConfirmacao } from '../conta/emails.js'
+import { cabecalhoDaSessao, valorDaSessao, type SegredosDaSessao } from '../conta/sessao.js'
 import { motivoDaSenhaFraca } from '../conta/senha-fraca.js'
 import { resumirSenha } from '../conta/senha.js'
 import { ErroDaApi } from '../erros.js'
@@ -97,6 +98,8 @@ export interface DependenciasDoCadastro {
   readonly novoId?: () => string
   /** O código do link. Os cenários passam um fixo. */
   readonly novoCodigo?: () => string
+  /** Os segredos da sessão: com eles, quem confirma o e-mail já fica dentro da conta (3.2, C). */
+  readonly segredosDaSessao?: SegredosDaSessao | null
 }
 
 /** A confirmação aceita, e o link aberto de novo depois dela. */
@@ -296,6 +299,12 @@ export function rotaDaConta(contexto: ContextoDoCadastro): Hono {
 
       if (!(await dep.contas.confirmar(contaId, agora))) throw new ErroDaApi(500, 'FALHA_INTERNA', 'Falha interna')
       console.info(`conta ${contaId} confirmada`)
+      /* Fica dentro da conta no aparelho em que abriu o link (3.2, C) — a desativada, não (3.3, F). */
+      const segredos = dep.segredosDaSessao ?? null
+      if (segredos !== null && conta.ativa) {
+        const valor = valorDaSessao({ contaId, emitidaEm: agora, geracao: conta.geracao }, segredos)
+        c.header('Set-Cookie', cabecalhoDaSessao(valor))
+      }
       return c.json(EMAIL_CONFIRMADO, 200)
     },
   )
