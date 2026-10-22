@@ -16,8 +16,18 @@ import { connectAuthEmulator, getAuth, signInWithCustomToken } from 'firebase/au
 import { connectFirestoreEmulator, getFirestore } from 'firebase/firestore'
 import { describe, expect, it } from 'vitest'
 
-import { DataCalendario, InstanteLocal, montarEncomenda, montarReserva, type Reserva, type RespostasDaEncomenda } from '@navegsistemas/domain'
+import {
+  contaNova,
+  DataCalendario,
+  InstanteLocal,
+  loteDaContaNova,
+  montarEncomenda,
+  montarReserva,
+  type Reserva,
+  type RespostasDaEncomenda,
+} from '@navegsistemas/domain'
 
+import { contasNoFirestore } from '../src/firestore/conta-firestore.js'
 import { loteNoFirestore, reservaNoFirestore } from '../src/firestore/reserva-firestore.js'
 import { sessaoDoServico, UID_DO_SERVICO } from '../src/firestore/servico.js'
 import { assinarTokenCustomizado } from '../src/firestore/token-customizado.js'
@@ -198,5 +208,63 @@ describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PU
     /* E o que o domínio não monta, as Rules também recusam: quem manda e retira, sem celular. */
     expect((await repositorio.criar({ ...doProprio, codigo: 'NVG-ENC0M3', cliente: { nome: 'Carlos' } })).caso).toBe('FALHA')
     expect((await banco.doc('reservas/NVG-ENC0M3').get()).exists).toBe(false)
+  }, 30_000)
+
+  it('o cadastro (naveg-api-vercel#30, PR 5): a conta, os segredos e o resumo num lote, e a procura pelo e-mail', async () => {
+    const admin = iniciarAdmin({ projectId: PROJETO }, 'admin-da-conta')
+    const cliente = iniciarCliente({ apiKey: 'chave-do-emulador', projectId: PROJETO }, 'cliente-da-conta')
+    connectAuthEmulator(getAuth(cliente), `http://${AUTH}`, { disableWarnings: true })
+    const db = getFirestore(cliente)
+    const [host, porta] = (FIRESTORE as string).split(':')
+    connectFirestoreEmulator(db, host as string, Number(porta))
+    const { privateKey } = generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+    })
+    const chave = { clientEmail: `naveg-api-escrita@${PROJETO}.iam.gserviceaccount.com`, privateKey }
+    const obter = sessaoDoServico(AGENCIA, {
+      emitirToken: async (uid, claims) => assinarTokenCustomizado(chave, uid, { ...claims }),
+      entrar: async (token) => {
+        await signInWithCustomToken(getAuth(cliente), token)
+        return db
+      },
+    })
+    const banco = firestoreDoAdmin(admin)
+    const contas = contasNoFirestore(obter, AGENCIA)
+    const hoje = DataCalendario.de('2026-10-21') as DataCalendario
+    const nova = (id: string, email: string) => {
+      const cadastro = { nome: 'Maria Souza', dataNascimento: '1990-05-20', email, telefone: '(91) 98888-7777', senha: 'rio e maré' }
+      const resultado = contaNova(id, cadastro, 1_792_600_000_000, hoje)
+      if (resultado.caso !== 'CONTA') throw new Error('exemplo incoerente')
+      return loteDaContaNova(resultado.conta)
+    }
+    const acesso = { resumoDaSenha: 'scrypt$15$8$3$c2Fs$cmVzdW1v', geracao: 0, errosSeguidos: 0 }
+
+    expect(await contas.existeComEmail('maria@exemplo.com.br')).toBe(false)
+    expect(await contas.criar('conta-1', nova('conta-1', 'maria@exemplo.com.br'), acesso, 1_792_600_000_000)).toBe(true)
+    expect(await contas.existeComEmail('maria@exemplo.com.br')).toBe(true)
+
+    const base = `empresas/${AGENCIA}`
+    expect((await banco.doc(`${base}/contasDeCliente/conta-1`).get()).data()).toMatchObject({
+      email: 'maria@exemplo.com.br',
+      telefone: '5591988887777',
+      ativa: true,
+    })
+    expect((await banco.doc(`${base}/contasDeCliente/conta-1/segredos/acesso`).get()).data()).toEqual(acesso)
+    expect((await banco.doc(`${base}/resumos/contasDeCliente`).get()).data()).toEqual({
+      total: 1,
+      confirmadas: 0,
+      ultimaCriadaEm: 1_792_600_000_000,
+    })
+
+    /* A segunda soma no resumo, sem apagar a primeira. */
+    expect(await contas.criar('conta-2', nova('conta-2', 'joao@exemplo.com.br'), acesso, 1_792_600_100_000)).toBe(true)
+    expect((await banco.doc(`${base}/resumos/contasDeCliente`).get()).data()).toMatchObject({ total: 2, confirmadas: 0 })
+
+    /* O serviço da NAVEG não grava no cadastro de outra agência: as Rules recusam o lote inteiro. */
+    const deOutra = contasNoFirestore(obter, 'outra-agencia')
+    expect(await deOutra.criar('conta-3', nova('conta-3', 'ana@exemplo.com.br'), acesso, 1_792_600_200_000)).toBe(false)
+    expect((await banco.doc('empresas/outra-agencia/contasDeCliente/conta-3').get()).exists).toBe(false)
   }, 30_000)
 })

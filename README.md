@@ -14,6 +14,7 @@ Não é uma API pública, não é um serviço de plataforma e não é a porta de
 | 0 | Esqueleto: Hono na Vercel, configuração que falha na partida, CORS, forma do erro, `GET /saude` | ✅ |
 | 1 | `GET /catalogo` — o catálogo do fluviapp, recortado pela concessão da NAVEG | ✅ |
 | 2 | `POST /reservas` — a reserva gravada com conta de serviço, com Turnstile e limite por IP | ✅ código · ⏳ ligar |
+| 3 | A conta do cliente (#30, em 10 PRs): `POST /conta`, o cadastro, é o PR 5; o e-mail, entrar e o resto vêm a seguir | 🔨 |
 
 Os passos 1 e 2 são os passos **9 e 10** do
 [plano do `naveg-front`](../naveg-front/docs/plano-de-implementacao.md) — o plano é um só, e é lá que ele mora.
@@ -264,6 +265,38 @@ O servidor deriva o resto e **não confia em mais nada**. As conferências vão 
 Responde `201 { "codigo": "NVG-7K3QP2", "reserva": { … } }` — o documento como foi gravado, que o totem lê com
 o mesmo codec que o aplicativo usa.
 
+### `POST /conta` — o cadastro (#30, PR 5)
+
+```json
+{ "nome": "…", "dataNascimento": "1990-05-20", "email": "…", "telefone": "(91) 98888-7777", "senha": "…", "desafio": "token do Turnstile" }
+```
+
+Sem documento: ele vem na primeira compra (PO, 2026-10-19). As conferências, da mais barata à mais cara:
+
+1. **a origem** → `403 ORIGEM_NAO_PERMITIDA`;
+2. **o cadastro ligado** (as mesmas peças da reserva) → `503 CADASTRO_INDISPONIVEL`;
+3. **o corpo**, até 4 kB, com os seis textos, e a senha até 128 caracteres → `413`/`400 CORPO_INVALIDO`;
+4. **o limite por IP**, num contador só do cadastro (`naveg:cadastro`), a mesma regra de 20 em 10 minutos → `429`;
+5. **o desafio**, com a ação `cadastro`: o token do totem não cria conta → `403 DESAFIO_INVALIDO`;
+6. **os campos**, pelo `pendenciasDoCadastro` do domínio, com a idade contada no dia de Belém →
+   `422 CADASTRO_INVALIDO`, com as pendências (`NOME`, `NASCIMENTO`, `MENOR_DE_IDADE`, `EMAIL`, `TELEFONE`,
+   `SENHA_CURTA`);
+7. **a senha comum** (uma lista aqui dentro) **ou vazada** (o Have I Been Pwned, pela faixa do SHA-1; sem resposta
+   em 2 s, vale só a lista) → `422 SENHA_FRACA`, com `SENHA_COMUM` ou `SENHA_VAZADA`;
+8. **o e-mail**: uma trava de 30 s no Upstash pelo e-mail resumido, a procura em `contasDeCliente` e a gravação.
+
+Responde **sempre** `202 { "situacao": "CONFIRA_O_EMAIL" }`, com conta nova ou com o e-mail que já tem conta (PO,
+2026-10-21: "Não revelar"). O que muda vai pelo e-mail, que só o dono lê (PR 6). O cadastro não entra na conta.
+
+A conta vai num lote só, sob as Rules do fluviapp: `empresas/{agência}/contasDeCliente/{id}`, os segredos em
+`…/segredos/acesso` (o resumo scrypt da senha, a geração e os erros seguidos; ADR-0003 do `naveg-front`) e mais
+uma no `resumos/contasDeCliente`.
+
+### `GET /eco`
+
+O endereço que a API enxerga, e os três cabeçalhos de onde ele sai, devolvidos a quem chamou, sem cache. Serve
+para conferir que um `X-Forwarded-For` forjado não passa pelo repasse `/api` do site (ADR-0003, "A medida").
+
 ## Segurança
 
 **Duas contas de serviço, e não uma.** O IAM do Firestore não distingue coleção: uma conta com papel de escrita
@@ -291,8 +324,8 @@ O resto:
 
 Copie `.env.example` para `.env`. As cinco primeiras são obrigatórias, e a ausência de qualquer uma derruba a
 partida com a lista inteira do que falta — não uma por vez. As três da proteção são **opcionais e juntas**, e a
-chave Web também é opcional: faltando qualquer uma delas, o `POST /reservas` responde `503` e a partida avisa
-qual falta.
+chave Web também é opcional: faltando qualquer uma delas, o `POST /reservas` e o `POST /conta` respondem `503` e
+a partida avisa qual falta.
 
 | variável | o que é |
 |---|---|
