@@ -5,7 +5,7 @@
  * falsas — sem rede, sem emulador, sem credencial — e o `api/index.ts` ser o único lugar que sabe que do outro
  * lado existe um banco.
  */
-import type { CatalogoDoFluviapp, EscritaDaConta } from '@navegsistemas/domain'
+import type { CatalogoDoFluviapp, EscritaDaConta, TipoDeLink } from '@navegsistemas/domain'
 
 /**
  * O catálogo do fluviapp **inteiro**, como está no banco: o pool de todas as empresas e a concessão da NAVEG.
@@ -56,15 +56,61 @@ export interface SegredoDeAcesso {
   readonly errosSeguidos: number
 }
 
+/** O link de confirmação guardado: `contasDeCliente/{id}/segredos/confirmacao` (ADR-0003, seções 3 e 4). */
+export interface SegredoDeConfirmacao {
+  /** O SHA-256 do código, em hexadecimal (`conta/codigo.ts`). O código mesmo só vai no e-mail. */
+  readonly resumoDoCodigo: string
+  /** Epoch millis. Depois dele, o link não vale (24 horas, 3.2, B). */
+  readonly valeAte: number
+}
+
+/** O que a confirmação precisa saber da conta. */
+export interface ContaParaConfirmar {
+  readonly confirmadaEm: number | null
+  /** `null`: não há link guardado — já usado, ou nunca mandado. */
+  readonly confirmacao: SegredoDeConfirmacao | null
+}
+
 /** As contas do site, no cadastro da agência. */
 export interface ContasDoCliente {
   /** Já há conta com este e-mail (normalizado)? */
   existeComEmail(email: string): Promise<boolean>
   /**
-   * Grava a conta, os segredos dela e mais uma no resumo, **juntos**. Recebe o lote do domínio
-   * (`loteDaContaNova`). `false`: o banco recusou, e o log diz o código.
+   * Grava a conta, os segredos dela (a senha e o link de confirmação) e mais uma no resumo, **juntos**. Recebe o
+   * lote do domínio (`loteDaContaNova`). `false`: o banco recusou, e o log diz o código.
    */
-  criar(contaId: string, lote: readonly EscritaDaConta[], acesso: SegredoDeAcesso, criadaEm: number): Promise<boolean>
+  criar(
+    contaId: string,
+    lote: readonly EscritaDaConta[],
+    acesso: SegredoDeAcesso,
+    confirmacao: SegredoDeConfirmacao,
+    criadaEm: number,
+  ): Promise<boolean>
+  /** Espelha na conta o último link mandado, para o painel ver (fluviapp-kmp#71, caso 3). */
+  registrarEnvio(contaId: string, tipo: TipoDeLink, em: number): Promise<void>
+  /** A conta e o link guardado dela, ou `null` quando não há conta com este id (ou ela não tem a forma da regra). */
+  paraConfirmar(contaId: string): Promise<ContaParaConfirmar | null>
+  /**
+   * Marca a conta como confirmada, apaga o link e soma uma nas `confirmadas` do resumo, **juntos**. `false`: o banco
+   * recusou.
+   */
+  confirmar(contaId: string, em: number): Promise<boolean>
+}
+
+/** Uma mensagem pronta para sair (`conta/emails.ts`). */
+export interface MensagemDeEmail {
+  readonly para: string
+  readonly assunto: string
+  readonly texto: string
+  readonly html: string
+}
+
+/**
+ * **O carteiro**: manda um e-mail pelo Google Workspace, de `naoresponda@gruponaveg.com.br`. `false`: não saiu, e o
+ * log diz por quê — sem o endereço de ninguém. Não lança: um e-mail que não sai não desfaz uma conta já gravada.
+ */
+export interface CarteiroDeEmail {
+  enviar(mensagem: MensagemDeEmail): Promise<boolean>
 }
 
 /** O relógio. Os cenários passam um fixo; o servidor, o do sistema. */

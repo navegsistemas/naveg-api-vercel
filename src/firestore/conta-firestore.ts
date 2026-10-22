@@ -7,10 +7,13 @@
  * - `contasDeCliente/{id}` — a conta, na forma do domínio (`loteDaContaNova`);
  * - `contasDeCliente/{id}/segredos/acesso` — o resumo da senha, a geração da sessão e os erros seguidos, que só o
  *   servidor lê (ADR-0003, seção 4);
- * - `resumos/contasDeCliente` — o que a plataforma vê, sem dado pessoal: mais uma no `total`, e a `ultimaCriadaEm`.
+ * - `contasDeCliente/{id}/segredos/confirmacao` — o resumo do código do link de confirmação e o prazo (seção 3);
+ * - `resumos/contasDeCliente` — o que a plataforma vê, sem dado pessoal: mais uma no `total`, e a `ultimaCriadaEm`;
+ *   ao confirmar, mais uma nas `confirmadas`.
  *
- * **Os três vão num lote só**: a conta não existe sem a senha, e o resumo não conta conta que não existe. O resumo
- * soma com `increment`, que o Firestore aplica no servidor: dois cadastros ao mesmo tempo não se apagam.
+ * **O cadastro vai num lote só**: a conta não existe sem a senha e o link, e o resumo não conta conta que não existe.
+ * A confirmação também: a conta confirmada, o link apagado e o resumo. O resumo soma com `increment`, que o
+ * Firestore aplica no servidor: dois cadastros ao mesmo tempo não se apagam.
  *
  * **Uma conta por e-mail.** A regra do KMP não tem índice de e-mail; quem garante é a API: a trava curta no Upstash
  * (a rota) e a procura aqui, antes de gravar.
@@ -18,19 +21,24 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   increment,
   limit,
   query,
+  updateDoc,
   where,
   writeBatch,
   type Firestore,
 } from 'firebase/firestore'
 
-import type { ContasDoCliente } from '../portas.js'
+import { contaDoDocumento } from '@navegsistemas/domain'
+
+import type { ContasDoCliente, SegredoDeConfirmacao } from '../portas.js'
 
 export const COLECAO_DE_CONTAS = 'contasDeCliente'
 export const SEGREDO_DE_ACESSO = 'segredos/acesso'
+export const SEGREDO_DE_CONFIRMACAO = 'segredos/confirmacao'
 export const RESUMO_DAS_CONTAS = 'resumos/contasDeCliente'
 
 export function contasNoFirestore(obter: () => Promise<Firestore>, agenciaId: string): ContasDoCliente {
@@ -43,7 +51,7 @@ export function contasNoFirestore(obter: () => Promise<Firestore>, agenciaId: st
       return !(await getDocs(consulta)).empty
     },
 
-    async criar(contaId, lote, acesso, criadaEm) {
+    async criar(contaId, lote, acesso, confirmacao, criadaEm) {
       try {
         const db = await obter()
         const escritas = writeBatch(db)
@@ -52,6 +60,7 @@ export function contasNoFirestore(obter: () => Promise<Firestore>, agenciaId: st
           else escritas.set(doc(db, daAgencia(escrita.caminho)), escrita.dados, { merge: escrita.op === 'atualizar' })
         }
         escritas.set(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}/${SEGREDO_DE_ACESSO}`)), { ...acesso })
+        escritas.set(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}/${SEGREDO_DE_CONFIRMACAO}`)), { ...confirmacao })
         escritas.set(
           doc(db, daAgencia(RESUMO_DAS_CONTAS)),
           /* `confirmadas` soma zero: no primeiro cadastro o resumo nasce, e a regra pede as duas contagens. */
@@ -61,10 +70,68 @@ export function contasNoFirestore(obter: () => Promise<Firestore>, agenciaId: st
         await escritas.commit()
         return true
       } catch (erro) {
-        const codigo = (erro as { code?: unknown } | null)?.code
-        console.error(`conta ${contaId} não gravada: erro do Firestore de código ${String(codigo)}`)
+        console.error(`conta ${contaId} não gravada: erro do Firestore de código ${codigoDoErro(erro)}`)
+        return false
+      }
+    },
+
+    async registrarEnvio(contaId, tipo, em) {
+      try {
+        const db = await obter()
+        await updateDoc(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}`)), {
+          ultimoEnvioTipo: tipo,
+          ultimoEnvioEm: em,
+        })
+      } catch (erro) {
+        /* O espelho é para o painel; a falta dele não desfaz o envio. */
+        console.error(`conta ${contaId}: último envio não registrado, erro de código ${codigoDoErro(erro)}`)
+      }
+    },
+
+    async paraConfirmar(contaId) {
+      const db = await obter()
+      const [conta, segredo] = await Promise.all([
+        getDoc(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}`))),
+        getDoc(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}/${SEGREDO_DE_CONFIRMACAO}`))),
+      ])
+      if (!conta.exists()) return null
+      const lida = contaDoDocumento(contaId, conta.data())
+      if (lida === null) {
+        console.error(`conta ${contaId} sem a forma da regra: confirmação recusada`)
+        return null
+      }
+      return { confirmadaEm: lida.confirmadaEm, confirmacao: segredoDeConfirmacao(segredo.data()) }
+    },
+
+    async confirmar(contaId, em) {
+      try {
+        const db = await obter()
+        const escritas = writeBatch(db)
+        escritas.update(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}`)), { confirmadaEm: em })
+        escritas.delete(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}/${SEGREDO_DE_CONFIRMACAO}`)))
+        escritas.set(
+          doc(db, daAgencia(RESUMO_DAS_CONTAS)),
+          { total: increment(0), confirmadas: increment(1) },
+          { merge: true },
+        )
+        await escritas.commit()
+        return true
+      } catch (erro) {
+        console.error(`conta ${contaId} não confirmada: erro do Firestore de código ${codigoDoErro(erro)}`)
         return false
       }
     },
   }
+}
+
+function codigoDoErro(erro: unknown): string {
+  return String((erro as { code?: unknown } | null)?.code)
+}
+
+/** O segredo lido → a forma da porta, ou `null` quando não há (ou não tem a forma esperada). */
+function segredoDeConfirmacao(dado: unknown): SegredoDeConfirmacao | null {
+  if (typeof dado !== 'object' || dado === null) return null
+  const { resumoDoCodigo, valeAte } = dado as Record<string, unknown>
+  if (typeof resumoDoCodigo !== 'string' || typeof valeAte !== 'number') return null
+  return { resumoDoCodigo, valeAte }
 }

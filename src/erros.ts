@@ -34,6 +34,10 @@ export const CODIGOS = [
   'SENHA_FRACA',
   /** O cadastro de contas não está configurado neste ambiente. */
   'CADASTRO_INDISPONIVEL',
+  /** O link de confirmação não confere: trocado por um mais novo, ou de conta que não existe (3.2, estado 4). */
+  'LINK_INVALIDO',
+  /** O link de confirmação passou das 24 horas (3.2, B). */
+  'LINK_VENCIDO',
   /** Qualquer coisa nossa que deu errado. */
   'FALHA_INTERNA',
 ] as const

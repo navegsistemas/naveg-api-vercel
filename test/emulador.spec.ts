@@ -240,9 +240,12 @@ describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PU
       return loteDaContaNova(resultado.conta)
     }
     const acesso = { resumoDaSenha: 'scrypt$15$8$3$c2Fs$cmVzdW1v', geracao: 0, errosSeguidos: 0 }
+    const confirmacao = { resumoDoCodigo: 'a'.repeat(64), valeAte: 1_792_686_400_000 }
 
     expect(await contas.existeComEmail('maria@exemplo.com.br')).toBe(false)
-    expect(await contas.criar('conta-1', nova('conta-1', 'maria@exemplo.com.br'), acesso, 1_792_600_000_000)).toBe(true)
+    expect(
+      await contas.criar('conta-1', nova('conta-1', 'maria@exemplo.com.br'), acesso, confirmacao, 1_792_600_000_000),
+    ).toBe(true)
     expect(await contas.existeComEmail('maria@exemplo.com.br')).toBe(true)
 
     const base = `empresas/${AGENCIA}`
@@ -252,6 +255,7 @@ describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PU
       ativa: true,
     })
     expect((await banco.doc(`${base}/contasDeCliente/conta-1/segredos/acesso`).get()).data()).toEqual(acesso)
+    expect((await banco.doc(`${base}/contasDeCliente/conta-1/segredos/confirmacao`).get()).data()).toEqual(confirmacao)
     expect((await banco.doc(`${base}/resumos/contasDeCliente`).get()).data()).toEqual({
       total: 1,
       confirmadas: 0,
@@ -259,12 +263,33 @@ describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PU
     })
 
     /* A segunda soma no resumo, sem apagar a primeira. */
-    expect(await contas.criar('conta-2', nova('conta-2', 'joao@exemplo.com.br'), acesso, 1_792_600_100_000)).toBe(true)
+    expect(
+      await contas.criar('conta-2', nova('conta-2', 'joao@exemplo.com.br'), acesso, confirmacao, 1_792_600_100_000),
+    ).toBe(true)
     expect((await banco.doc(`${base}/resumos/contasDeCliente`).get()).data()).toMatchObject({ total: 2, confirmadas: 0 })
 
     /* O serviço da NAVEG não grava no cadastro de outra agência: as Rules recusam o lote inteiro. */
     const deOutra = contasNoFirestore(obter, 'outra-agencia')
-    expect(await deOutra.criar('conta-3', nova('conta-3', 'ana@exemplo.com.br'), acesso, 1_792_600_200_000)).toBe(false)
+    expect(
+      await deOutra.criar('conta-3', nova('conta-3', 'ana@exemplo.com.br'), acesso, confirmacao, 1_792_600_200_000),
+    ).toBe(false)
     expect((await banco.doc('empresas/outra-agencia/contasDeCliente/conta-3').get()).exists).toBe(false)
+
+    /* O PR 6: o envio espelhado para o painel, a leitura do link, e a confirmação num lote — sob as Rules. */
+    await contas.registrarEnvio('conta-1', 'CONFIRMACAO', 1_792_600_000_500)
+    expect((await banco.doc(`${base}/contasDeCliente/conta-1`).get()).data()).toMatchObject({
+      ultimoEnvioTipo: 'CONFIRMACAO',
+      ultimoEnvioEm: 1_792_600_000_500,
+    })
+    expect(await contas.paraConfirmar('conta-1')).toEqual({ confirmadaEm: null, confirmacao })
+    expect(await contas.paraConfirmar('nao-existe')).toBeNull()
+
+    expect(await contas.confirmar('conta-1', 1_792_600_300_000)).toBe(true)
+    expect((await banco.doc(`${base}/contasDeCliente/conta-1`).get()).data()).toMatchObject({
+      confirmadaEm: 1_792_600_300_000,
+    })
+    expect((await banco.doc(`${base}/contasDeCliente/conta-1/segredos/confirmacao`).get()).exists).toBe(false)
+    expect((await banco.doc(`${base}/resumos/contasDeCliente`).get()).data()).toMatchObject({ total: 2, confirmadas: 1 })
+    expect(await contas.paraConfirmar('conta-1')).toEqual({ confirmadaEm: 1_792_600_300_000, confirmacao: null })
   }, 30_000)
 })
