@@ -75,12 +75,41 @@ export interface ContaParaConfirmar {
   readonly geracao: number
 }
 
-/** O que o "Reenviar" precisa da conta achada pelo e-mail (3.2, B). */
-export interface ContaParaReenviar {
+/** O que um link pedido pelo e-mail precisa da conta: o "Reenviar" (3.2, B) e o "Esqueci a senha" (3.4). */
+export interface ContaParaLink {
   readonly contaId: string
   /** Para o "Olá" do e-mail. */
   readonly nome: string
   readonly confirmada: boolean
+  /** A desativada não recebe o link de troca: recebe o aviso (3.4, F). */
+  readonly ativa: boolean
+}
+
+/** O link de troca de senha guardado: `segredos/trocaDeSenha` (ADR-0003, seção 3). A mesma forma do outro. */
+export type SegredoDeTroca = SegredoDeConfirmacao
+
+/** O que a senha nova precisa da conta (3.4). */
+export interface ContaParaTrocarSenha {
+  /** `null`: não há link guardado — já usado, ou nunca pedido. */
+  readonly troca: SegredoDeTroca | null
+  readonly ativa: boolean
+  readonly confirmadaEm: number | null
+  /** Tirar o bloqueio junto (3.3, C): quem trocou a senha provou que é a pessoa. */
+  readonly bloqueadaAte: number | null
+  readonly geracao: number
+  /** Para o aviso da troca (3.4, D). */
+  readonly nome: string
+  readonly email: string
+}
+
+/** A troca, num lote só (3.4, C e E). */
+export interface TrocaDeSenha {
+  readonly resumoDaSenha: string
+  /** A geração somada: todo cookie anterior deixa de valer (ADR-0003, seção 1). */
+  readonly geracao: number
+  /** Quando a conta ainda não tinha confirmado: o link de troca confirma o e-mail (3.4, E). */
+  readonly confirmarEm: number | null
+  readonly tirarBloqueio: boolean
 }
 
 /** O que entrar precisa da conta achada pelo e-mail (3.3). */
@@ -124,10 +153,19 @@ export interface ContasDoCliente {
    * recusou.
    */
   confirmar(contaId: string, em: number): Promise<boolean>
-  /** A conta deste e-mail (normalizado), para mandar o link de novo, ou `null` quando não há. */
-  paraReenviar(email: string): Promise<ContaParaReenviar | null>
+  /** A conta deste e-mail (normalizado), para mandar um link, ou `null` quando não há. */
+  paraMandarLink(email: string): Promise<ContaParaLink | null>
   /** Troca o link guardado por um novo: o anterior deixa de valer (3.2, B). `false`: o banco recusou. */
   trocarConfirmacao(contaId: string, confirmacao: SegredoDeConfirmacao): Promise<boolean>
+  /** Grava o link de troca de senha por cima do anterior (3.4, A). `false`: o banco recusou. */
+  gravarTrocaDeSenha(contaId: string, troca: SegredoDeTroca): Promise<boolean>
+  /** A conta e o link de troca guardado, ou `null` quando não há conta com este id. */
+  paraTrocarSenha(contaId: string): Promise<ContaParaTrocarSenha | null>
+  /**
+   * A senha nova: o resumo e a geração nos segredos, os erros zerados, o link apagado (vale uma vez só) e, se for o
+   * caso, a confirmação do e-mail e o bloqueio tirado, **juntos**. `false`: o banco recusou.
+   */
+  trocarSenha(contaId: string, troca: TrocaDeSenha): Promise<boolean>
   /** A conta deste e-mail (normalizado), com os segredos de acesso, ou `null` quando não há. */
   paraEntrar(email: string): Promise<ContaParaEntrar | null>
   /**

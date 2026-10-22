@@ -285,12 +285,13 @@ describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PU
     expect(await contas.paraConfirmar('nao-existe')).toBeNull()
 
     /* O "Reenviar" (3.2, B): a conta achada pelo e-mail, e o link novo por cima do anterior — sob as Rules. */
-    expect(await contas.paraReenviar('maria@exemplo.com.br')).toEqual({
+    expect(await contas.paraMandarLink('maria@exemplo.com.br')).toEqual({
       contaId: 'conta-1',
       nome: 'Maria Souza',
       confirmada: false,
+      ativa: true,
     })
-    expect(await contas.paraReenviar('ninguem@exemplo.com.br')).toBeNull()
+    expect(await contas.paraMandarLink('ninguem@exemplo.com.br')).toBeNull()
     const reenviada = { resumoDoCodigo: 'b'.repeat(64), valeAte: 1_792_690_000_000 }
     expect(await contas.trocarConfirmacao('conta-1', reenviada)).toBe(true)
     expect((await banco.doc(`${base}/contasDeCliente/conta-1/segredos/confirmacao`).get()).data()).toEqual(reenviada)
@@ -338,5 +339,50 @@ describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PU
 
     expect(await contas.paraSessao('conta-1')).toEqual({ ativa: true, confirmada: true, geracao: 0 })
     expect(await contas.paraSessao('nao-existe')).toBeNull()
+
+    /* O PR 8: o link de troca na conta por confirmar, e a troca que confirma o e-mail (3.4, E) — sob as Rules. */
+    expect((await contas.paraMandarLink('joao@exemplo.com.br'))?.ativa).toBe(true)
+    const troca = { resumoDoCodigo: 'e'.repeat(64), valeAte: 1_792_604_000_000 }
+    expect(await contas.gravarTrocaDeSenha('conta-2', troca)).toBe(true)
+    expect(await contas.paraTrocarSenha('conta-2')).toEqual({
+      troca,
+      ativa: true,
+      confirmadaEm: null,
+      bloqueadaAte: null,
+      geracao: 0,
+      nome: 'Maria Souza',
+      email: 'joao@exemplo.com.br',
+    })
+    expect(await contas.paraTrocarSenha('nao-existe')).toBeNull()
+    expect(await deOutra.gravarTrocaDeSenha('conta-2', troca)).toBe(false)
+
+    const novoResumo = 'scrypt$15$8$3$c2Fs$bm92bw'
+    expect(
+      await contas.trocarSenha('conta-2', {
+        resumoDaSenha: novoResumo,
+        geracao: 1,
+        confirmarEm: 1_792_603_000_000,
+        tirarBloqueio: false,
+      }),
+    ).toBe(true)
+    expect((await banco.doc(`${base}/contasDeCliente/conta-2/segredos/acesso`).get()).data()).toEqual({
+      resumoDaSenha: novoResumo,
+      geracao: 1,
+      errosSeguidos: 0,
+    })
+    expect((await banco.doc(`${base}/contasDeCliente/conta-2/segredos/trocaDeSenha`).get()).exists).toBe(false)
+    expect((await banco.doc(`${base}/contasDeCliente/conta-2/segredos/confirmacao`).get()).exists).toBe(false)
+    expect((await banco.doc(`${base}/contasDeCliente/conta-2`).get()).data()).toMatchObject({
+      confirmadaEm: 1_792_603_000_000,
+    })
+    expect((await banco.doc(`${base}/resumos/contasDeCliente`).get()).data()).toMatchObject({ total: 2, confirmadas: 2 })
+
+    /* A conta com bloqueio: a troca tira o `bloqueadaAte`, e não confirma de novo. */
+    await contas.registrarErroDeSenha('conta-1', 0, 1_792_609_000_000)
+    expect(
+      await contas.trocarSenha('conta-1', { resumoDaSenha: novoResumo, geracao: 1, confirmarEm: null, tirarBloqueio: true }),
+    ).toBe(true)
+    expect((await banco.doc(`${base}/contasDeCliente/conta-1`).get()).data()).not.toHaveProperty('bloqueadaAte')
+    expect((await banco.doc(`${base}/resumos/contasDeCliente`).get()).data()).toMatchObject({ confirmadas: 2 })
   }, 30_000)
 })

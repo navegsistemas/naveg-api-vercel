@@ -30,14 +30,19 @@ export const CODIGOS = [
   'ENVIO_INDISPONIVEL',
   /** O cadastro tem campo errado. Vem com `pendencias`, as do domínio (`PENDENCIAS_DO_CADASTRO`). */
   'CADASTRO_INVALIDO',
-  /** A senha é comum ou vazada. Vem com `pendencias`: `SENHA_COMUM` ou `SENHA_VAZADA` — a tela diz por quê (3.1, C). */
+  /**
+   * A senha é comum ou vazada. Vem com `pendencias`: `SENHA_COMUM` ou `SENHA_VAZADA` — a tela diz por quê (3.1, C). Na
+   * senha nova (3.4), também `SENHA_CURTA`, a pendência do domínio.
+   */
   'SENHA_FRACA',
   /** O cadastro de contas não está configurado neste ambiente. */
   'CADASTRO_INDISPONIVEL',
   /** O link de confirmação não confere: trocado por um mais novo, ou de conta que não existe (3.2, estado 4). */
   'LINK_INVALIDO',
-  /** O link de confirmação passou das 24 horas (3.2, B). */
+  /** O link passou do prazo: 24 horas o de confirmação (3.2, B), 1 hora o de troca de senha (3.4, A). */
   'LINK_VENCIDO',
+  /** A troca de senha não está configurada neste ambiente (falta o e-mail ou o segredo da sessão). */
+  'SENHA_INDISPONIVEL',
   /** Entrar não está configurado neste ambiente (falta o segredo da sessão). */
   'ENTRAR_INDISPONIVEL',
   /** "E-mail ou senha não conferem" — a mesma resposta nos dois casos (3.3, B). */
