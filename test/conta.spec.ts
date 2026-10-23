@@ -117,13 +117,18 @@ class Contas implements ContasDoCliente {
     return true
   }
   /* O reenvio acha a conta gravada pelo e-mail do lote. */
-  async paraReenviar(email: string) {
+  async paraMandarLink(email: string) {
     this.procuras.push(email)
     for (const gravada of this.gravadas) {
       const lida = contaDoDocumento(gravada.contaId, gravada.lote[0]?.op === 'criar' ? gravada.lote[0].dados : {})
       if (lida?.email === email) {
         const estado = this.estado.get(gravada.contaId)
-        return { contaId: gravada.contaId, nome: lida.nome, confirmada: (estado?.confirmadaEm ?? null) !== null }
+        return {
+          contaId: gravada.contaId,
+          nome: lida.nome,
+          confirmada: (estado?.confirmadaEm ?? null) !== null,
+          ativa: estado?.ativa ?? true,
+        }
       }
     }
     return null
@@ -134,6 +139,16 @@ class Contas implements ContasDoCliente {
     this.trocas.push({ contaId, confirmacao })
     const antes = this.estado.get(contaId) as ContaParaConfirmar
     this.estado.set(contaId, { ...antes, confirmacao })
+    return true
+  }
+  /* A troca de senha tem os cenários dela (`senha.spec.ts`). */
+  async gravarTrocaDeSenha() {
+    return true
+  }
+  async paraTrocarSenha() {
+    return null
+  }
+  async trocarSenha() {
     return true
   }
 }

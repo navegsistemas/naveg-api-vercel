@@ -406,7 +406,7 @@ async function reenviarOLink(dep: DependenciasDoCadastro, email: string, site: s
     console.info('reenvios demais deste e-mail na hora: nada mandado')
     return
   }
-  const conta = await dep.contas.paraReenviar(email)
+  const conta = await dep.contas.paraMandarLink(email)
   if (conta === null) {
     console.info('reenvio para e-mail sem conta: nada mandado')
     return

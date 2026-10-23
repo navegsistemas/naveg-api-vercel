@@ -8,6 +8,7 @@
  * - `contasDeCliente/{id}/segredos/acesso` — o resumo da senha, a geração da sessão e os erros seguidos, que só o
  *   servidor lê (ADR-0003, seção 4);
  * - `contasDeCliente/{id}/segredos/confirmacao` — o resumo do código do link de confirmação e o prazo (seção 3);
+ * - `contasDeCliente/{id}/segredos/trocaDeSenha` — o mesmo, do link de troca de senha (3.4), apagado ao ser usado;
  * - `resumos/contasDeCliente` — o que a plataforma vê, sem dado pessoal: mais uma no `total`, e a `ultimaCriadaEm`;
  *   ao confirmar, mais uma nas `confirmadas`.
  *
@@ -41,6 +42,7 @@ import type { ContasDoCliente, SegredoDeAcesso, SegredoDeConfirmacao } from '../
 export const COLECAO_DE_CONTAS = 'contasDeCliente'
 export const SEGREDO_DE_ACESSO = 'segredos/acesso'
 export const SEGREDO_DE_CONFIRMACAO = 'segredos/confirmacao'
+export const SEGREDO_DE_TROCA = 'segredos/trocaDeSenha'
 export const RESUMO_DAS_CONTAS = 'resumos/contasDeCliente'
 
 export function contasNoFirestore(obter: () => Promise<Firestore>, agenciaId: string): ContasDoCliente {
@@ -131,7 +133,7 @@ export function contasNoFirestore(obter: () => Promise<Firestore>, agenciaId: st
       }
     },
 
-    async paraReenviar(email) {
+    async paraMandarLink(email) {
       const db = await obter()
       const consulta = query(collection(db, daAgencia(COLECAO_DE_CONTAS)), where('email', '==', email), limit(1))
       const conta = (await getDocs(consulta)).docs[0]
@@ -141,7 +143,7 @@ export function contasNoFirestore(obter: () => Promise<Firestore>, agenciaId: st
         console.error(`conta ${conta.id} sem a forma da regra: reenvio recusado`)
         return null
       }
-      return { contaId: conta.id, nome: lida.nome, confirmada: lida.confirmadaEm !== null }
+      return { contaId: conta.id, nome: lida.nome, confirmada: lida.confirmadaEm !== null, ativa: lida.ativa }
     },
 
     async trocarConfirmacao(contaId, confirmacao) {
@@ -152,6 +154,76 @@ export function contasNoFirestore(obter: () => Promise<Firestore>, agenciaId: st
         return true
       } catch (erro) {
         console.error(`conta ${contaId}: link novo não gravado, erro do Firestore de código ${codigoDoErro(erro)}`)
+        return false
+      }
+    },
+
+    async gravarTrocaDeSenha(contaId, troca) {
+      try {
+        const db = await obter()
+        await setDoc(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}/${SEGREDO_DE_TROCA}`)), { ...troca })
+        return true
+      } catch (erro) {
+        console.error(`conta ${contaId}: link de troca não gravado, erro do Firestore de código ${codigoDoErro(erro)}`)
+        return false
+      }
+    },
+
+    async paraTrocarSenha(contaId) {
+      const db = await obter()
+      const [conta, troca, acesso] = await Promise.all([
+        getDoc(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}`))),
+        getDoc(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}/${SEGREDO_DE_TROCA}`))),
+        getDoc(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}/${SEGREDO_DE_ACESSO}`))),
+      ])
+      if (!conta.exists()) return null
+      const lida = contaDoDocumento(contaId, conta.data())
+      const segredos = segredoDeAcesso(acesso.data())
+      if (lida === null || segredos === null) {
+        console.error(`conta ${contaId} sem a forma da regra: troca de senha recusada`)
+        return null
+      }
+      return {
+        troca: segredoDeConfirmacao(troca.data()),
+        ativa: lida.ativa,
+        confirmadaEm: lida.confirmadaEm,
+        bloqueadaAte: lida.bloqueadaAte,
+        geracao: segredos.geracao,
+        nome: lida.nome,
+        email: lida.email,
+      }
+    },
+
+    async trocarSenha(contaId, troca) {
+      try {
+        const db = await obter()
+        const escritas = writeBatch(db)
+        const daConta = (caminho: string) => doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}${caminho}`))
+        escritas.update(daConta(`/${SEGREDO_DE_ACESSO}`), {
+          resumoDaSenha: troca.resumoDaSenha,
+          geracao: troca.geracao,
+          errosSeguidos: 0,
+        })
+        /* Vale uma vez só (3.4, A). */
+        escritas.delete(daConta(`/${SEGREDO_DE_TROCA}`))
+        const naConta: Record<string, unknown> = {}
+        if (troca.confirmarEm !== null) naConta['confirmadaEm'] = troca.confirmarEm
+        /* Ausente, e não `null`, como em `registrarEntrada`. */
+        if (troca.tirarBloqueio) naConta['bloqueadaAte'] = deleteField()
+        if (Object.keys(naConta).length > 0) escritas.update(daConta(''), naConta)
+        if (troca.confirmarEm !== null) {
+          /* Confirmada pelo link de troca (3.4, E): o link de confirmação sai, e o resumo conta mais uma. */
+          escritas.delete(daConta(`/${SEGREDO_DE_CONFIRMACAO}`))
+          escritas.set(
+            doc(db, daAgencia(RESUMO_DAS_CONTAS)),
+            { total: increment(0), confirmadas: increment(1) },
+            { merge: true },
+          )
+        }
+        await escritas.commit()
+        return true
+      } catch (erro) {
+        console.error(`conta ${contaId}: senha não trocada, erro do Firestore de código ${codigoDoErro(erro)}`)
         return false
       }
     },

@@ -95,3 +95,69 @@ export function emailDeCadastroRepetido(para: string, site: string): Email {
     ),
   }
 }
+
+/** **Esqueci a senha** (3.4): o link de 1 hora, que vale uma vez só. */
+export function emailDeTrocaDeSenha(para: string, nome: string, link: string): Email {
+  const ola = `Olá, ${primeiroNome(nome)}!`
+  const aviso = 'Se você não pediu para trocar a senha, ignore este e-mail: sua senha continua a mesma.'
+  return {
+    para,
+    assunto: 'Troque sua senha na NAVEG',
+    texto: [
+      ola,
+      '',
+      'Recebemos um pedido para trocar a senha da sua conta no site da NAVEG.',
+      '',
+      `Trocar a senha: ${link}`,
+      '',
+      'O link vale por 1 hora, e uma vez só.',
+      '',
+      aviso,
+      RODAPE_EM_TEXTO,
+    ].join('\n'),
+    html: html(
+      `<p style="${PARAGRAFO}">${escapar(ola)}</p>
+<p style="${PARAGRAFO}">Recebemos um pedido para trocar a senha da sua conta no site da NAVEG.</p>
+<p style="margin:0 0 18px"><a href="${escapar(link)}" style="display:inline-block;padding:13px 22px;border-radius:4px;background:#fa8b17;color:#1b1006;font-weight:bold;text-decoration:none">Trocar a senha</a></p>
+<p style="margin:0 0 6px;font-size:13px;color:#6b5443">O link vale por 1 hora, e uma vez só. Se o botão não abrir, copie este endereço no navegador:</p>
+<p style="margin:0;font-family:Consolas,monospace;font-size:12px;color:#103a5b;word-break:break-all">${escapar(link)}</p>`,
+      `${escapar(aviso)}<br>${escapar(RODAPE_EM_TEXTO)}`,
+    ),
+  }
+}
+
+/** **A conta desativada pediu a troca** (3.4, F): o aviso, com o WhatsApp, e nenhum link. */
+export function emailDeContaDesativada(para: string): Email {
+  const frase = 'Recebemos um pedido para trocar a senha da sua conta no site da NAVEG, mas esta conta está desativada.'
+  const saida = `Para reativar, fale com o atendimento pelo WhatsApp ${ATENDIMENTO_POR_WHATSAPP}.`
+  const aviso = 'Se você não pediu, ignore este e-mail.'
+  return {
+    para,
+    assunto: 'Sua conta na NAVEG está desativada',
+    texto: [frase, '', saida, '', aviso, RODAPE_EM_TEXTO].join('\n'),
+    html: html(
+      `<p style="${PARAGRAFO}">${escapar(frase)}</p>
+<p style="${PARAGRAFO}">${escapar(saida)}</p>
+<p style="${PARAGRAFO}">${escapar(aviso)}</p>`,
+      escapar(RODAPE_EM_TEXTO),
+    ),
+  }
+}
+
+/** **Sua senha foi trocada** (3.4, D): a hora, e o WhatsApp para quem não reconhece a troca. */
+export function emailDeSenhaTrocada(para: string, nome: string, quando: string): Email {
+  const ola = `Olá, ${primeiroNome(nome)}!`
+  const frase = `A senha da sua conta no site da NAVEG foi trocada em ${quando}. A conta saiu dos outros aparelhos.`
+  const saida = `Se não foi você, fale agora com o atendimento pelo WhatsApp ${ATENDIMENTO_POR_WHATSAPP}.`
+  return {
+    para,
+    assunto: 'Sua senha foi trocada',
+    texto: [ola, '', frase, '', saida, '', RODAPE_EM_TEXTO].join('\n'),
+    html: html(
+      `<p style="${PARAGRAFO}">${escapar(ola)}</p>
+<p style="${PARAGRAFO}">${escapar(frase)}</p>
+<p style="${PARAGRAFO}"><b>${escapar(saida)}</b></p>`,
+      escapar(RODAPE_EM_TEXTO),
+    ),
+  }
+}

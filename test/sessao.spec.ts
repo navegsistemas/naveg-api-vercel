@@ -66,8 +66,17 @@ class Contas implements ContasDoCliente {
   async confirmar() {
     return true
   }
-  async paraReenviar() {
+  async paraMandarLink() {
     return null
+  }
+  async gravarTrocaDeSenha() {
+    return true
+  }
+  async paraTrocarSenha() {
+    return null
+  }
+  async trocarSenha() {
+    return true
   }
   async trocarConfirmacao() {
     return true

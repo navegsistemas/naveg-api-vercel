@@ -38,6 +38,7 @@ import {
   type DependenciasDoEntrar,
 } from '../src/rotas/sessao.js'
 import type { DependenciasDoEnvio } from '../src/rotas/reservas.js'
+import type { DependenciasDaSenha } from '../src/rotas/senha.js'
 
 const config = lerConfig()
 const leitura = firestoreDaConta('leitura', config.contaDeLeitura, config.projetoFirebase)
@@ -115,8 +116,38 @@ const entrar: DependenciasDoEntrar | null =
         sal: protecao.upstashToken,
       }
 
+/* O "Esqueci a senha" pede o que o cadastro pede (o e-mail sai) e o segredo da sessão (quem troca fica dentro). O
+   limite por IP é o do cadastro; os 60 segundos e os 5 por hora, num contador só deste link. */
+const senha: DependenciasDaSenha | null =
+  protecao === null || contas === null || contaDeEnvio === null || segredosDaSessao === null
+    ? null
+    : {
+        contas,
+        limite: limiteNoUpstash(protecao.upstashUrl, protecao.upstashToken, undefined, undefined, 'naveg:cadastro'),
+        trava: travaNoUpstash(protecao.upstashUrl, protecao.upstashToken, 'naveg:cadastro:email'),
+        limiteDoPedido: limiteNoUpstash(
+          protecao.upstashUrl,
+          protecao.upstashToken,
+          LIMITE_DO_REENVIO,
+          undefined,
+          'naveg:troca:email',
+        ),
+        senhaVazada: senhaVazadaNoHibp(),
+        carteiro: carteiroNoWorkspace(contaDeEnvio),
+        segredos: segredosDaSessao,
+        sal: protecao.upstashToken,
+        emSegundoPlano: waitUntil,
+      }
+
 /* O `handle` do `@hono/node-server/vercel` (1.x) era só isto, e a 2.x tirou o atalho: o ouvinte de requisição do
    Node, que traduz o `IncomingMessage` da função no `Request` do app. */
-const app = criarApp({ config, catalogo: catalogoDoFirestore(leitura, config.empresaId), envio, cadastro, entrar })
+const app = criarApp({
+  config,
+  catalogo: catalogoDoFirestore(leitura, config.empresaId),
+  envio,
+  cadastro,
+  entrar,
+  senha,
+})
 
 export default getRequestListener(app.fetch)

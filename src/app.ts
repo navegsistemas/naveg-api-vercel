@@ -24,6 +24,7 @@ import { rotaDaConta, type DependenciasDoCadastro } from './rotas/conta.js'
 import { rotaDeEco } from './rotas/eco.js'
 import { rotaDeReservas, type DependenciasDoEnvio } from './rotas/reservas.js'
 import { rotaDeSaude } from './rotas/saude.js'
+import { rotaDaSenha, type DependenciasDaSenha } from './rotas/senha.js'
 import { rotaDaSessao, type DependenciasDoEntrar } from './rotas/sessao.js'
 
 export interface Dependencias {
@@ -35,6 +36,8 @@ export interface Dependencias {
   readonly cadastro?: DependenciasDoCadastro | null
   /** O que entrar e a sessão precisam. Ausente ou `null`: entrar responde `503`; sair funciona sempre. */
   readonly entrar?: DependenciasDoEntrar | null
+  /** O que o "Esqueci a senha" precisa. Ausente ou `null`: as duas rotas dele respondem `503`. */
+  readonly senha?: DependenciasDaSenha | null
   readonly relogio?: Relogio
 }
 
@@ -44,6 +47,7 @@ export function criarApp({
   envio,
   cadastro = null,
   entrar = null,
+  senha = null,
   relogio = () => new Date(),
 }: Dependencias): Hono {
   const app = new Hono()
@@ -73,6 +77,7 @@ export function criarApp({
   )
   app.route('/conta', rotaDaConta({ origensPermitidas: config.origensPermitidas, relogio, cadastro }))
   app.route('/conta', rotaDaSessao({ origensPermitidas: config.origensPermitidas, relogio, entrar }))
+  app.route('/conta/senha', rotaDaSenha({ origensPermitidas: config.origensPermitidas, relogio, senha }))
   app.route('/eco', rotaDeEco())
 
   app.notFound((c) => {

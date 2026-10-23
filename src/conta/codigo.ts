@@ -34,3 +34,11 @@ export function codigoConfere(codigo: string, resumoGuardado: string): boolean {
 export function linkDeConfirmacao(site: string, contaId: string, codigo: string): string {
   return `${site.replace(/\/$/, '')}/conta/confirmar#${contaId}.${codigo}`
 }
+
+/** O link de troca de senha vale 1 hora, e uma vez só (3.4, A). */
+export const PRAZO_DA_TROCA_MS = 60 * 60 * 1000
+
+/** O endereço do link de troca de senha, no site de onde veio o pedido. */
+export function linkDeTrocaDeSenha(site: string, contaId: string, codigo: string): string {
+  return `${site.replace(/\/$/, '')}/conta/nova-senha#${contaId}.${codigo}`
+}
