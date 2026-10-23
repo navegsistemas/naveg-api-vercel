@@ -69,6 +69,9 @@ class Dados implements DadosDaConta {
   async trocarEmail() {
     return true
   }
+  async apagarConta() {
+    return true
+  }
 }
 
 function montar(opcoes: { dados?: false } = {}) {

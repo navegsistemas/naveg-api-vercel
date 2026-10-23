@@ -37,7 +37,7 @@ import {
   type Firestore,
 } from 'firebase/firestore'
 
-import { contaDoDocumento } from '@navegsistemas/domain'
+import { contaDoDocumento, loteDaContaApagada } from '@navegsistemas/domain'
 
 import type {
   ContasDoCliente,
@@ -53,6 +53,14 @@ export const SEGREDO_DE_CONFIRMACAO = 'segredos/confirmacao'
 export const SEGREDO_DE_TROCA = 'segredos/trocaDeSenha'
 export const SEGREDO_DE_TROCA_DE_EMAIL = 'segredos/trocaDeEmail'
 export const RESUMO_DAS_CONTAS = 'resumos/contasDeCliente'
+
+/** Todos os segredos que a conta pode ter: apagar a conta leva todos. */
+export const SEGREDOS_DA_CONTA = [
+  SEGREDO_DE_ACESSO,
+  SEGREDO_DE_CONFIRMACAO,
+  SEGREDO_DE_TROCA,
+  SEGREDO_DE_TROCA_DE_EMAIL,
+] as const
 
 export function contasNoFirestore(obter: () => Promise<Firestore>, agenciaId: string): ContasDoCliente & DadosDaConta {
   const daAgencia = (caminho: string) => `empresas/${agenciaId}/${caminho}`
@@ -384,6 +392,29 @@ export function contasNoFirestore(obter: () => Promise<Firestore>, agenciaId: st
         return true
       } catch (erro) {
         console.error(`conta ${contaId}: e-mail não trocado, erro do Firestore de código ${codigoDoErro(erro)}`)
+        return false
+      }
+    },
+
+    async apagarConta(conta) {
+      try {
+        const db = await obter()
+        const escritas = writeBatch(db)
+        /* A conta e o índice, do domínio: o documento fica livre no mesmo lote (a regra confere um pelo outro). */
+        for (const escrita of loteDaContaApagada(conta)) escritas.delete(doc(db, daAgencia(escrita.caminho)))
+        /* Os segredos todos: sem eles, nenhum cookie e nenhum link da conta vale mais. */
+        for (const segredo of SEGREDOS_DA_CONTA) {
+          escritas.delete(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${conta.id}/${segredo}`)))
+        }
+        escritas.set(
+          doc(db, daAgencia(RESUMO_DAS_CONTAS)),
+          { total: increment(-1), confirmadas: increment(conta.confirmadaEm === null ? 0 : -1) },
+          { merge: true },
+        )
+        await escritas.commit()
+        return true
+      } catch (erro) {
+        console.error(`conta ${conta.id} não apagada: erro do Firestore de código ${codigoDoErro(erro)}`)
         return false
       }
     },

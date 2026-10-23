@@ -84,6 +84,9 @@ class Contas implements ContasDoCliente, DadosDaConta {
   async trocarEmail() {
     return true
   }
+  async apagarConta() {
+    return true
+  }
   async registrarErroDeSenha(_: string, errosSeguidos: number, bloqueadaAte: number | null) {
     this.erros.push({ errosSeguidos, bloqueadaAte })
     this.acesso = { ...this.acesso, errosSeguidos }

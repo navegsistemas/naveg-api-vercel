@@ -228,6 +228,27 @@ export function emailDeEmailJaUsado(para: string, site: string): Email {
   }
 }
 
+/**
+ * **Sua conta foi apagada** (4.2, E): a hora, o que saiu e o WhatsApp para quem não reconhece. É o último e-mail a
+ * este endereço: depois dele, a agência não guarda mais o endereço na conta.
+ */
+export function emailDeContaApagada(para: string, nome: string, quando: string): Email {
+  const ola = `Olá, ${primeiroNome(nome)}!`
+  const frase = `Sua conta no site da NAVEG foi apagada em ${quando}, com os seus dados. As passagens já emitidas continuam valendo.`
+  const saida = `Se não foi você, fale agora com o atendimento pelo WhatsApp ${ATENDIMENTO_POR_WHATSAPP}.`
+  return {
+    para,
+    assunto: 'Sua conta foi apagada',
+    texto: [ola, '', frase, '', saida, '', RODAPE_EM_TEXTO].join('\n'),
+    html: html(
+      `<p style="${PARAGRAFO}">${escapar(ola)}</p>
+<p style="${PARAGRAFO}">${escapar(frase)}</p>
+<p style="${PARAGRAFO}"><b>${escapar(saida)}</b></p>`,
+      escapar(RODAPE_EM_TEXTO),
+    ),
+  }
+}
+
 /** **Sua senha foi trocada** (3.4, D): a hora, e o WhatsApp para quem não reconhece a troca. */
 export function emailDeSenhaTrocada(para: string, nome: string, quando: string): Email {
   const ola = `Olá, ${primeiroNome(nome)}!`

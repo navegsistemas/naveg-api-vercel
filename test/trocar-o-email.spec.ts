@@ -97,6 +97,9 @@ class Contas implements ContasDoCliente, DadosDaConta {
   async existeComEmail(email: string) {
     return this.emailsComConta.has(email)
   }
+  async apagarConta() {
+    return true
+  }
   async registrarErroDeSenha(_: string, errosSeguidos: number, bloqueadaAte: number | null) {
     this.erros.push({ errosSeguidos, bloqueadaAte })
     this.acesso = { ...this.acesso, errosSeguidos }

@@ -329,6 +329,14 @@ O link aberto manda `{ contaId, codigo }` à `confirmacao`, sem sessão: `200 EM
 (com a trava do cadastro no e-mail novo). A conta por confirmar fica confirmada. A troca não tira a conta dos outros
 aparelhos.
 
+### `POST /conta/apagar` — apagar a conta (#30, PR 10)
+
+`{ "senha": "…" }`, só para quem entrou, com a senha conferida como nas trocas (4.2, E; O7). Vale na hora, num lote
+só: a conta e o índice do documento (o `loteDaContaApagada` do domínio; o documento fica livre), os quatro segredos
+(`acesso`, `confirmacao`, `trocaDeSenha`, `trocaDeEmail`) e uma a menos no resumo. Sem os segredos, a conta sai de
+todos os aparelhos. Responde `200 CONTA_APAGADA`, tira o cookie deste aparelho, e manda o aviso "Sua conta foi
+apagada". As passagens não moram na conta, e ficam. O pedido do painel (`APAGAR_CONTA`, #44) vai usar o mesmo lote.
+
 ### `GET /eco`
 
 O endereço que a API enxerga, e os três cabeçalhos de onde ele sai, devolvidos a quem chamou, sem cache. Serve
