@@ -13,19 +13,19 @@
     "test:emulador": "node scripts/emulador.mjs"
   },
   "dependencies": {
-    "@hono/node-server": "^2.1.4",
+    "@hono/node-server": "^2.1.5",
     "@navegsistemas/domain": "^0.13.0",
     "@vercel/functions": "3.9.11",
     "firebase": "^13.0.0",
     "firebase-admin": "^14.5.0",
     "hono": "^4.13.13",
-    "nodemailer": "10.0.16"
+    "nodemailer": "10.1.7"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
     "@types/nodemailer": "^8.0.2",
     "typescript": "^5.9.2",
-    "vitest": "^5.0.4"
+    "vitest": "^5.0.5"
   },
   "engines": {
     "node": ">=24.12"
