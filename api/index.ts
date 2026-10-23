@@ -18,6 +18,7 @@
  * que a API grava como usuário de serviço, sob as Rules do fluviapp (`src/firestore/servico.ts`).
  */
 import { getRequestListener } from '@hono/node-server'
+import { waitUntil } from '@vercel/functions'
 
 import { criarApp } from '../src/app.js'
 import { lerConfig } from '../src/config.js'
@@ -30,7 +31,7 @@ import { loteNoFirestore, reservaNoFirestore } from '../src/firestore/reserva-fi
 import { sessaoDoServicoNoFirebase, UID_DO_SERVICO } from '../src/firestore/servico.js'
 import { limiteNoUpstash, travaNoUpstash } from '../src/protecao/limite-upstash.js'
 import { ACAO_DO_CADASTRO, ACAO_DO_ENTRAR, desafioNaCloudflare } from '../src/protecao/turnstile.js'
-import type { DependenciasDoCadastro } from '../src/rotas/conta.js'
+import { LIMITE_DO_REENVIO, type DependenciasDoCadastro } from '../src/rotas/conta.js'
 import {
   ERROS_ATE_ESPERAR,
   ESPERA_DAS_TENTATIVAS_MS,
@@ -83,6 +84,15 @@ const cadastro: DependenciasDoCadastro | null =
         carteiro: carteiroNoWorkspace(contaDeEnvio),
         sal: protecao.upstashToken,
         segredosDaSessao,
+        limiteDoReenvio: limiteNoUpstash(
+          protecao.upstashUrl,
+          protecao.upstashToken,
+          LIMITE_DO_REENVIO,
+          undefined,
+          'naveg:reenvio:email',
+        ),
+        /* Sem o `waitUntil`, a Vercel pode congelar a função assim que a resposta sai, com o e-mail por mandar. */
+        emSegundoPlano: waitUntil,
       }
 
 /* Entrar pede a sessão do serviço, a proteção e o segredo que assina o cookie. Os contadores são do entrar: o por

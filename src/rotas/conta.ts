@@ -1,6 +1,6 @@
 /**
- * **`POST /conta`** — o cadastro (3.1; naveg-api-vercel#30, o PR 5) — e **`POST /conta/confirmacao`**, o link do
- * e-mail (3.2; o PR 6).
+ * **`POST /conta`** — o cadastro (3.1; naveg-api-vercel#30, o PR 5) —, **`POST /conta/confirmacao`**, o link do
+ * e-mail (3.2; o PR 6), e **`POST /conta/confirmacao/reenvio`**, o "Reenviar" (3.2, B).
  *
  * O corpo é o `CadastroDaConta` do domínio mais o desafio: nome, nascimento, e-mail, celular e senha. O documento
  * não está aqui: ele vem na primeira compra (PO, 2026-10-19). As conferências seguem a ordem do custo, como na
@@ -24,7 +24,7 @@
  *
  * O tempo também não pode contar. Os dois caminhos pagam o scrypt da senha e mandam um e-mail; o do e-mail novo
  * grava antes. **Um e-mail que não sai não muda a resposta**: o erro vai ao log, e a conta, gravada, espera o
- * "Reenviar" (3.2, B), que vem num PR próprio, depois do de entrar.
+ * "Reenviar" (3.2, B), mais abaixo.
  *
  * O link leva ao site de onde veio o cadastro — a `Origin`, já conferida no passo 1.
  *
@@ -34,6 +34,18 @@
  * `200 JA_CONFIRMADO` (o link aberto duas vezes); `410 LINK_VENCIDO` (passou das 24 horas); `410 LINK_INVALIDO`
  * (trocado por um mais novo, ou de conta que não existe). **Quem confirma fica dentro da conta** (3.2, C): a resposta
  * leva o cookie da sessão, quando o segredo dela está configurado e a conta está ativa.
+ *
+ * ### O "Reenviar"
+ *
+ * `POST /conta/confirmacao/reenvio`, com o e-mail (3.2, B): um link novo, de 24 horas, que **invalida o anterior**.
+ * Vem da tela "Confira seu e-mail" e do link vencido, onde ninguém entrou ainda; por isso o pedido é pelo e-mail, e
+ * não pela sessão. Os freios são por e-mail: **um a cada 60 segundos**, e **5 por hora**; e o limite por IP do
+ * cadastro, antes deles.
+ *
+ * **A resposta é sempre `202 CONFIRA_O_EMAIL`**, como a do cadastro: e-mail sem conta, conta já confirmada, freio
+ * puxado ou link mandado, tudo igual. O tempo também não pode contar, e aqui não há um e-mail para mandar nos dois
+ * caminhos: o trabalho (os freios, a procura, a gravação e o e-mail) roda **depois da resposta**, no `waitUntil` da
+ * Vercel. Os 60 segundos, quem mostra é a tela, com o botão esperando.
  *
  * O log leva o id da conta, nunca o nome, o e-mail ou o celular.
  */
@@ -100,7 +112,25 @@ export interface DependenciasDoCadastro {
   readonly novoCodigo?: () => string
   /** Os segredos da sessão: com eles, quem confirma o e-mail já fica dentro da conta (3.2, C). */
   readonly segredosDaSessao?: SegredosDaSessao | null
+  /** Os reenvios do link por e-mail, na hora (`LIMITE_DO_REENVIO`). A chave chega resumida, como o IP. */
+  readonly limiteDoReenvio: LimitePorIp
+  /**
+   * O que roda depois da resposta: o `waitUntil` da Vercel, que segura a função até a tarefa acabar. Sem ele, a
+   * tarefa corre solta. Os cenários guardam as tarefas e esperam por elas.
+   */
+  readonly emSegundoPlano?: (tarefa: Promise<void>) => void
 }
+
+/** O "Reenviar" a cada 60 segundos (3.2, B). */
+export const INTERVALO_DO_REENVIO_EM_SEGUNDOS = 60
+
+/** O limite por hora do "Reenviar" (3.2, B): cinco, para quem procurou no spam e pediu de novo, e não mais. */
+export const LIMITE_DO_REENVIO = { teto: 5, janelaEmSegundos: 60 * 60 } as const
+
+export const LIMITE_DO_CORPO_DO_REENVIO = 1024
+
+/** O e-mail mais longo que a regra da conta aceita. */
+const EMAIL_MAIS_LONGO = 254
 
 /** A confirmação aceita, e o link aberto de novo depois dela. */
 export const EMAIL_CONFIRMADO = { situacao: 'EMAIL_CONFIRMADO' } as const
@@ -309,5 +339,91 @@ export function rotaDaConta(contexto: ContextoDoCadastro): Hono {
     },
   )
 
+  /* O "Reenviar" (3.2, B): a resposta sai já; o resto, depois dela. */
+  rota.post(
+    '/confirmacao/reenvio',
+    async (c, proximo) => {
+      conferirOrigem(c.req.header('origin'), contexto.origensPermitidas)
+      if (contexto.cadastro === null) {
+        throw new ErroDaApi(503, 'CADASTRO_INDISPONIVEL', 'Cadastro de contas não configurado')
+      }
+      await proximo()
+    },
+    bodyLimit({
+      maxSize: LIMITE_DO_CORPO_DO_REENVIO,
+      onError: () => {
+        throw new ErroDaApi(413, 'CORPO_INVALIDO', 'Corpo grande demais')
+      },
+    }),
+    async (c) => {
+      const dep = contexto.cadastro as DependenciasDoCadastro
+
+      let bruto: unknown
+      try {
+        bruto = await c.req.json()
+      } catch {
+        throw new ErroDaApi(400, 'CORPO_INVALIDO', 'O corpo não é JSON')
+      }
+      const { email: digitado } = (typeof bruto === 'object' && bruto !== null ? bruto : {}) as Record<string, unknown>
+      if (typeof digitado !== 'string' || digitado.length > EMAIL_MAIS_LONGO) {
+        throw new ErroDaApi(400, 'CORPO_INVALIDO', 'O corpo não é um pedido de reenvio')
+      }
+
+      /* O mesmo contador do cadastro: quem pede o link de novo acabou de se cadastrar. */
+      const ip = ipDaRequisicao((nome) => c.req.header(nome))
+      if (!(await dep.limite.registrar(resumirIp(ip, dep.sal)))) {
+        throw new ErroDaApi(429, 'LIMITE_EXCEDIDO', 'Pedidos demais deste endereço')
+      }
+
+      /* O e-mail que não tem a forma de um e-mail não tem conta: a mesma resposta, sem tarefa. */
+      const email = normalizarEmail(digitado)
+      if (email !== null) {
+        const site = c.req.header('origin') as string
+        const tarefa = reenviarOLink(dep, email, site, contexto.relogio().getTime()).catch((erro: unknown) => {
+          console.error(`reenvio do link interrompido: ${(erro as Error).message}`)
+        })
+        ;(dep.emSegundoPlano ?? ((solta) => void solta))(tarefa)
+      }
+      return c.json(CONFIRA_O_EMAIL, 202)
+    },
+  )
+
   return rota
+}
+
+/**
+ * O trabalho do "Reenviar", depois da resposta: os dois freios do e-mail, a conta, o link novo por cima do anterior,
+ * e o e-mail. Tudo que não manda nada só deixa uma linha no log, sem o e-mail.
+ */
+async function reenviarOLink(dep: DependenciasDoCadastro, email: string, site: string, agora: number): Promise<void> {
+  const chave = resumirIp(email, dep.sal)
+  /* A trava antes do contador: o toque dentro dos 60 segundos não gasta um dos 5 da hora. */
+  if (!(await dep.trava.travar(`reenvio:${chave}`, INTERVALO_DO_REENVIO_EM_SEGUNDOS))) {
+    console.info('reenvio antes dos 60 segundos: nada mandado')
+    return
+  }
+  if (!(await dep.limiteDoReenvio.registrar(chave))) {
+    console.info('reenvios demais deste e-mail na hora: nada mandado')
+    return
+  }
+  const conta = await dep.contas.paraReenviar(email)
+  if (conta === null) {
+    console.info('reenvio para e-mail sem conta: nada mandado')
+    return
+  }
+  if (conta.confirmada) {
+    console.info(`conta ${conta.contaId}: reenvio com o e-mail já confirmado, nada mandado`)
+    return
+  }
+  const codigo = (dep.novoCodigo ?? codigoDeLink)()
+  const confirmacao = { resumoDoCodigo: resumirCodigo(codigo), valeAte: agora + PRAZO_DA_CONFIRMACAO_MS }
+  /* Sem o link novo gravado, o do e-mail não conferiria: melhor não mandar. O adaptador já disse o código no log. */
+  if (!(await dep.contas.trocarConfirmacao(conta.contaId, confirmacao))) return
+  const link = linkDeConfirmacao(site, conta.contaId, codigo)
+  if (await dep.carteiro.enviar(emailDeConfirmacao(email, conta.nome, link))) {
+    await dep.contas.registrarEnvio(conta.contaId, 'CONFIRMACAO', agora)
+    console.info(`conta ${conta.contaId}: link de confirmação reenviado`)
+  } else {
+    console.error(`conta ${conta.contaId}: o link reenviado não saiu`)
+  }
 }

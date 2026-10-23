@@ -116,6 +116,26 @@ class Contas implements ContasDoCliente {
     this.estado.set(contaId, { ...antes, confirmadaEm: em, confirmacao: null })
     return true
   }
+  /* O reenvio acha a conta gravada pelo e-mail do lote. */
+  async paraReenviar(email: string) {
+    this.procuras.push(email)
+    for (const gravada of this.gravadas) {
+      const lida = contaDoDocumento(gravada.contaId, gravada.lote[0]?.op === 'criar' ? gravada.lote[0].dados : {})
+      if (lida?.email === email) {
+        const estado = this.estado.get(gravada.contaId)
+        return { contaId: gravada.contaId, nome: lida.nome, confirmada: (estado?.confirmadaEm ?? null) !== null }
+      }
+    }
+    return null
+  }
+  readonly trocas: { contaId: string; confirmacao: SegredoDeConfirmacao }[] = []
+  async trocarConfirmacao(contaId: string, confirmacao: SegredoDeConfirmacao) {
+    if (this.falhar) return false
+    this.trocas.push({ contaId, confirmacao })
+    const antes = this.estado.get(contaId) as ContaParaConfirmar
+    this.estado.set(contaId, { ...antes, confirmacao })
+    return true
+  }
 }
 
 /** O carteiro, em memória. `saem = false`: o SMTP recusa. */
@@ -148,6 +168,12 @@ function montar(opcoes: { cadastro?: false; contas?: Contas; semSessao?: true } 
     limitePassa: true,
     travaPassa: true,
     senhaVazada: false,
+    /* O código do próximo link: o reenvio troca, como os de verdade. */
+    codigo: CODIGO,
+    reenviosNoLimite: [] as string[],
+    limiteDoReenvioPassa: true,
+    /* O que a rota deixou para depois da resposta. */
+    tarefas: [] as Promise<void>[],
   }
   const catalogo: LeitorDoCatalogo = { ler: async () => Promise.reject(new Error('o cadastro não lê o catálogo')) }
   const desafio: VerificadorDoDesafio = {
@@ -186,8 +212,15 @@ function montar(opcoes: { cadastro?: false; contas?: Contas; semSessao?: true } 
           carteiro: cena.carteiro,
           sal: 'sal-de-teste',
           novoId: () => 'conta-1',
-          novoCodigo: () => CODIGO,
+          novoCodigo: () => cena.codigo,
           segredosDaSessao: opcoes.semSessao ? null : SEGREDOS,
+          limiteDoReenvio: {
+            registrar: async (chave) => {
+              cena.reenviosNoLimite.push(chave)
+              return cena.limiteDoReenvioPassa
+            },
+          },
+          emSegundoPlano: (tarefa) => void cena.tarefas.push(tarefa),
         }
   const app = criarApp({ config: CONFIG, catalogo, envio: null, cadastro, relogio: () => cena.agora })
 
@@ -197,7 +230,14 @@ function montar(opcoes: { cadastro?: false; contas?: Contas; semSessao?: true } 
       headers: { 'Content-Type': 'application/json', Origin: ORIGEM, 'x-real-ip': '200.1.2.3', ...cabecalhos },
       body: typeof corpo === 'string' ? corpo : JSON.stringify(corpo),
     })
-  return { cena, enviar: postar('/conta'), confirmar: postar('/conta/confirmacao'), app }
+  const reenviarSemEsperar = postar('/conta/confirmacao/reenvio')
+  /* O pedido, e depois as tarefas que ele deixou: a resposta já saiu quando elas rodam. */
+  const reenviar = async (corpo: unknown, cabecalhos: Record<string, string> = {}) => {
+    const resposta = await reenviarSemEsperar(corpo, cabecalhos)
+    await Promise.all(cena.tarefas.splice(0))
+    return resposta
+  }
+  return { cena, enviar: postar('/conta'), confirmar: postar('/conta/confirmacao'), reenviar, reenviarSemEsperar, app }
 }
 
 let logs: string[]
@@ -569,6 +609,142 @@ describe('POST /conta/confirmacao (3.2)', () => {
     const resposta = await confirmar({ contaId: 'conta-1', codigo: CODIGO })
     expect(resposta.status).toBe(500)
     expect(await resposta.json()).toEqual({ erro: 'FALHA_INTERNA', mensagem: 'Falha interna' })
+  })
+})
+
+describe('POST /conta/confirmacao/reenvio (3.2, B)', () => {
+  const MARIA = { email: ' Maria@Exemplo.com.br ' }
+  const NOVO = 'n'.repeat(43)
+
+  /** A Maria cadastrada, o primeiro e-mail já mandado, e o código do próximo link. */
+  async function cadastrada() {
+    const montado = montar()
+    await montado.enviar(CADASTRO)
+    montado.cena.carteiro.mandados.length = 0
+    montado.cena.contas.envios.length = 0
+    montado.cena.codigo = NOVO
+    return montado
+  }
+
+  it('um link novo, de 24 horas a contar do reenvio, mandado à Maria', async () => {
+    const dep = await cadastrada()
+    dep.cena.agora = new Date(TERCA_8H_EM_BELEM.getTime() + 2 * 60 * 60 * 1000)
+    const resposta = await dep.reenviar(MARIA)
+    expect(resposta.status).toBe(202)
+    expect(await resposta.json()).toEqual(CONFIRA_O_EMAIL)
+
+    const [troca] = dep.cena.contas.trocas
+    expect(troca?.contaId).toBe('conta-1')
+    expect(troca?.confirmacao).toEqual({
+      resumoDoCodigo: resumirCodigo(NOVO),
+      valeAte: dep.cena.agora.getTime() + PRAZO_DA_CONFIRMACAO_MS,
+    })
+    const [mandado] = dep.cena.carteiro.mandados
+    expect(mandado?.para).toBe('maria@exemplo.com.br')
+    expect(mandado?.texto).toContain(`${ORIGEM}/conta/confirmar#conta-1.${NOVO}`)
+    expect(dep.cena.contas.envios).toEqual([{ contaId: 'conta-1', tipo: 'CONFIRMACAO', em: dep.cena.agora.getTime() }])
+    expect(logs.join('\n')).toContain('conta conta-1: link de confirmação reenviado')
+    expect(logs.join('\n')).not.toContain('maria@')
+  })
+
+  it('o link novo invalida o anterior: o do cadastro dá 410 LINK_INVALIDO, o reenviado confirma', async () => {
+    const { reenviar, confirmar } = await cadastrada()
+    await reenviar(MARIA)
+    const velho = await confirmar({ contaId: 'conta-1', codigo: CODIGO })
+    expect(velho.status).toBe(410)
+    expect(await velho.json()).toMatchObject({ erro: 'LINK_INVALIDO' })
+    const novo = await confirmar({ contaId: 'conta-1', codigo: NOVO })
+    expect(novo.status).toBe(200)
+    expect(await novo.json()).toEqual(EMAIL_CONFIRMADO)
+  })
+
+  it('a mesma resposta para o e-mail sem conta, a conta já confirmada e o e-mail sem forma, sem mandar nada', async () => {
+    const { cena, reenviar, confirmar } = await cadastrada()
+    const semConta = await reenviar({ email: 'ninguem@exemplo.com.br' })
+    expect(semConta.status).toBe(202)
+    expect(await semConta.json()).toEqual(CONFIRA_O_EMAIL)
+
+    await confirmar({ contaId: 'conta-1', codigo: CODIGO })
+    const confirmada = await reenviar(MARIA)
+    expect(confirmada.status).toBe(202)
+    expect(await confirmada.json()).toEqual(CONFIRA_O_EMAIL)
+
+    const semForma = await reenviar({ email: 'não é e-mail' })
+    expect(semForma.status).toBe(202)
+    expect(await semForma.json()).toEqual(CONFIRA_O_EMAIL)
+
+    expect(cena.carteiro.mandados).toHaveLength(0)
+    expect(cena.contas.trocas).toHaveLength(0)
+    expect(logs.join('\n')).toContain('reenvio para e-mail sem conta: nada mandado')
+    expect(logs.join('\n')).toContain('conta conta-1: reenvio com o e-mail já confirmado, nada mandado')
+  })
+
+  it('a resposta não espera o e-mail: ele sai depois dela, na tarefa deixada para trás', async () => {
+    const { cena, reenviarSemEsperar } = await cadastrada()
+    let soltar = () => {}
+    const enviar = cena.carteiro.enviar.bind(cena.carteiro)
+    cena.carteiro.enviar = async (mensagem) => {
+      await new Promise<void>((pronto) => (soltar = pronto))
+      return enviar(mensagem)
+    }
+    const resposta = await reenviarSemEsperar(MARIA)
+    expect(resposta.status).toBe(202)
+    expect(cena.tarefas).toHaveLength(1)
+    expect(cena.carteiro.mandados).toHaveLength(0)
+    soltar()
+    await Promise.all(cena.tarefas.splice(0))
+    expect(cena.carteiro.mandados).toHaveLength(1)
+  })
+
+  it('dentro dos 60 segundos, nada sai, e o toque não gasta um dos 5 da hora', async () => {
+    const { cena, reenviar } = await cadastrada()
+    cena.travaPassa = false
+    expect((await reenviar(MARIA)).status).toBe(202)
+    expect(cena.travas.at(-1)).toMatch(/^reenvio:/)
+    expect(cena.reenviosNoLimite).toHaveLength(0)
+    expect(cena.carteiro.mandados).toHaveLength(0)
+    expect(logs.join('\n')).toContain('reenvio antes dos 60 segundos: nada mandado')
+  })
+
+  it('passou dos 5 na hora, nada sai: a mesma resposta', async () => {
+    const { cena, reenviar } = await cadastrada()
+    cena.limiteDoReenvioPassa = false
+    const resposta = await reenviar(MARIA)
+    expect(resposta.status).toBe(202)
+    expect(await resposta.json()).toEqual(CONFIRA_O_EMAIL)
+    expect(cena.carteiro.mandados).toHaveLength(0)
+    expect(cena.contas.trocas).toHaveLength(0)
+    expect(logs.join('\n')).toContain('reenvios demais deste e-mail na hora: nada mandado')
+  })
+
+  it('o link novo que o banco recusa não é mandado; o e-mail que não sai fica no log, e a resposta não muda', async () => {
+    const recusado = await cadastrada()
+    recusado.cena.contas.falhar = true
+    expect((await recusado.reenviar(MARIA)).status).toBe(202)
+    expect(recusado.cena.carteiro.mandados).toHaveLength(0)
+
+    const semCorreio = await cadastrada()
+    semCorreio.cena.carteiro.saem = false
+    expect((await semCorreio.reenviar(MARIA)).status).toBe(202)
+    expect(semCorreio.cena.contas.envios).toHaveLength(0)
+    expect(logs.join('\n')).toContain('conta conta-1: o link reenviado não saiu')
+  })
+
+  it('o corpo sem e-mail: 400, sem gastar o limite; a origem de fora: 403; desligado: 503; o limite por IP: 429', async () => {
+    const { cena, reenviar } = await cadastrada()
+    const antes = cena.ipsNoLimite.length
+    expect((await reenviar('{ não é json')).status).toBe(400)
+    expect((await reenviar({})).status).toBe(400)
+    expect((await reenviar({ email: 'a'.repeat(255) })).status).toBe(400)
+    expect(cena.ipsNoLimite).toHaveLength(antes)
+
+    expect((await reenviar(MARIA, { Origin: 'https://outro.site' })).status).toBe(403)
+    cena.limitePassa = false
+    expect((await reenviar(MARIA)).status).toBe(429)
+    expect(cena.carteiro.mandados).toHaveLength(0)
+
+    const desligado = montar({ cadastro: false })
+    expect((await desligado.reenviar(MARIA)).status).toBe(503)
   })
 })
 

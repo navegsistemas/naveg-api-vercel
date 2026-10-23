@@ -27,6 +27,7 @@ import {
   increment,
   limit,
   query,
+  setDoc,
   updateDoc,
   where,
   writeBatch,
@@ -126,6 +127,31 @@ export function contasNoFirestore(obter: () => Promise<Firestore>, agenciaId: st
         return true
       } catch (erro) {
         console.error(`conta ${contaId} não confirmada: erro do Firestore de código ${codigoDoErro(erro)}`)
+        return false
+      }
+    },
+
+    async paraReenviar(email) {
+      const db = await obter()
+      const consulta = query(collection(db, daAgencia(COLECAO_DE_CONTAS)), where('email', '==', email), limit(1))
+      const conta = (await getDocs(consulta)).docs[0]
+      if (conta === undefined) return null
+      const lida = contaDoDocumento(conta.id, conta.data())
+      if (lida === null) {
+        console.error(`conta ${conta.id} sem a forma da regra: reenvio recusado`)
+        return null
+      }
+      return { contaId: conta.id, nome: lida.nome, confirmada: lida.confirmadaEm !== null }
+    },
+
+    async trocarConfirmacao(contaId, confirmacao) {
+      try {
+        const db = await obter()
+        /* Por cima do anterior: o resumo do código velho some, e o link dele deixa de conferir. */
+        await setDoc(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}/${SEGREDO_DE_CONFIRMACAO}`)), { ...confirmacao })
+        return true
+      } catch (erro) {
+        console.error(`conta ${contaId}: link novo não gravado, erro do Firestore de código ${codigoDoErro(erro)}`)
         return false
       }
     },
