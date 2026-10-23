@@ -10,13 +10,12 @@
  * O nascimento e o documento não mudam por aqui: só pelo atendimento, no painel (4.2, A; fluviapp-kmp#71, caso 7).
  * O e-mail e a senha têm cada um o seu passo (4.2, B e C), nos PRs seguintes.
  *
- * **Os dois pedem quem entrou**, conferido como o `GET /conta/sessao` confere: a assinatura e o prazo do cookie, a
- * conta ativa e a geração. A conta e a geração vêm numa leitura só. O cookie que não vale mais sai do aparelho
- * (`401 SEM_SESSAO`); o que tem mais de um dia é renovado. O `POST` confere a origem, como todo `POST` da conta.
+ * **Os dois pedem quem entrou** (`conta/quem-entrou.ts`), conferido como o `GET /conta/sessao` confere. O `POST`
+ * confere a origem, como todo `POST` da conta.
  *
  * O log leva o id da conta, nunca o nome ou o celular.
  */
-import { Hono, type Context } from 'hono'
+import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 
 import {
@@ -28,17 +27,10 @@ import {
   type PendenciaDoCadastro,
 } from '@navegsistemas/domain'
 
-import {
-  cabecalhoDaSessao,
-  cabecalhoDeSaida,
-  cookieDaSessao,
-  lerSessao,
-  precisaRenovar,
-  valorDaSessao,
-  type SegredosDaSessao,
-} from '../conta/sessao.js'
+import { quemEntrou } from '../conta/quem-entrou.js'
+import type { SegredosDaSessao } from '../conta/sessao.js'
 import { ErroDaApi } from '../erros.js'
-import type { ContaDosMeusDados, DadosDaConta, Relogio } from '../portas.js'
+import type { DadosDaConta, Relogio } from '../portas.js'
 import { conferirOrigem } from '../protecao/origem.js'
 
 export const LIMITE_DO_CORPO_DOS_DADOS = 1024
@@ -78,32 +70,14 @@ export function meusDados(conta: ContaDoCliente): MeusDados {
   }
 }
 
-/**
- * Quem entrou, ou `401`. A conta é lida uma vez, junto com a geração, e volta para a rota. O cookie que não vale mais
- * sai do aparelho; o que tem mais de um dia ganha um novo.
- */
-async function quemEntrou(c: Context, dep: DependenciasDosDados, agora: number): Promise<ContaDosMeusDados> {
-  const valor = cookieDaSessao(c.req.header('cookie'))
-  const sessao = valor === null ? null : lerSessao(valor, dep.segredos, agora)
-  const lida = sessao === null ? null : await dep.dados.paraMeusDados(sessao.contaId)
-  if (sessao === null || lida === null || !lida.conta.ativa || lida.geracao !== sessao.geracao) {
-    if (valor !== null) c.header('Set-Cookie', cabecalhoDeSaida())
-    throw new ErroDaApi(401, 'SEM_SESSAO', 'Ninguém entrou neste aparelho')
-  }
-  if (precisaRenovar(sessao, agora)) {
-    const renovada = valorDaSessao({ contaId: sessao.contaId, emitidaEm: agora, geracao: sessao.geracao }, dep.segredos)
-    c.header('Set-Cookie', cabecalhoDaSessao(renovada))
-  }
-  return lida
-}
-
 export function rotaDosDados(contexto: ContextoDosDados): Hono {
   const rota = new Hono()
 
   rota.get('/', async (c) => {
     c.header('Cache-Control', 'no-store')
     if (contexto.dados === null) throw new ErroDaApi(503, 'ENTRAR_INDISPONIVEL', 'Entrar não configurado')
-    const { conta } = await quemEntrou(c, contexto.dados, contexto.relogio().getTime())
+    const dep = contexto.dados
+    const { conta } = await quemEntrou(c, dep.dados, dep.segredos, contexto.relogio().getTime())
     return c.json(meusDados(conta), 200)
   })
 
@@ -137,7 +111,7 @@ export function rotaDosDados(contexto: ContextoDosDados): Hono {
         throw new ErroDaApi(400, 'CORPO_INVALIDO', 'O corpo não são os dados da conta')
       }
 
-      const { conta } = await quemEntrou(c, dep, contexto.relogio().getTime())
+      const { conta } = await quemEntrou(c, dep.dados, dep.segredos, contexto.relogio().getTime())
 
       /* As mesmas conferências do cadastro, campo por campo: a tela erra embaixo do campo. */
       const nome = normalizarNome(nomeDigitado)

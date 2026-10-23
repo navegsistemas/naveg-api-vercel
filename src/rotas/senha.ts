@@ -20,6 +20,13 @@
  *
  * O "Esqueci a senha" vale mesmo com a conta esperando os 15 minutos das tentativas (3.3, C).
  *
+ * - **`POST /conta/senha/trocar`** — Meus dados (4.2, C; o PR 9b): `{ atual, nova }`, **só para quem entrou**
+ *   (`conta/quem-entrou.ts`). A senha atual é a prova: quem pega o celular com a conta aberta não troca a senha sem
+ *   ela. Por isso **o erro dela conta nas tentativas de entrar** (3.3, C): `403 CREDENCIAIS_INVALIDAS`, e o quinto
+ *   erro seguido espera 15 minutos (`429 TENTATIVAS_DEMAIS`), como no entrar. A senha nova passa pelas conferências
+ *   da troca pelo link (`422 SENHA_FRACA`). Aceita: o mesmo lote, a geração somada (a conta sai dos outros
+ *   aparelhos), **dentro neste aparelho** (`200 DENTRO`, com o cookie novo) e o aviso "Sua senha foi trocada".
+ *
  * O log leva o id da conta, nunca o nome, o e-mail ou a senha.
  */
 import { Hono, type Context, type MiddlewareHandler } from 'hono'
@@ -35,14 +42,16 @@ import {
   resumirCodigo,
 } from '../conta/codigo.js'
 import { emailDeContaDesativada, emailDeSenhaTrocada, emailDeTrocaDeSenha } from '../conta/emails.js'
+import { quemEntrou } from '../conta/quem-entrou.js'
 import { cabecalhoDaSessao, valorDaSessao, type SegredosDaSessao } from '../conta/sessao.js'
 import { motivoDaSenhaFraca } from '../conta/senha-fraca.js'
-import { resumirSenha } from '../conta/senha.js'
+import { conferirSenha, resumirSenha } from '../conta/senha.js'
 import { ErroDaApi } from '../erros.js'
 import type {
   CarteiroDeEmail,
   ConsultaDeSenhaVazada,
   ContasDoCliente,
+  DadosDaConta,
   LimitePorIp,
   Relogio,
   TravaPorChave,
@@ -51,7 +60,7 @@ import { ipDaRequisicao, resumirIp } from '../protecao/ip.js'
 import { conferirOrigem } from '../protecao/origem.js'
 import { CONFIRA_O_EMAIL, INTERVALO_DO_REENVIO_EM_SEGUNDOS, SENHA_MAIS_LONGA } from './conta.js'
 import { FUSO_DA_OPERACAO } from './reservas.js'
-import { dentro } from './sessao.js'
+import { dentro, ERROS_ATE_ESPERAR, ESPERA_DAS_TENTATIVAS_MS } from './sessao.js'
 
 export const LIMITE_DO_CORPO_DA_SENHA = 1024
 
@@ -72,6 +81,8 @@ export interface DependenciasDaSenha {
   readonly novoCodigo?: () => string
   /** O que roda depois da resposta (o `waitUntil` da Vercel). Sem ele, a tarefa corre solta. */
   readonly emSegundoPlano?: (tarefa: Promise<void>) => void
+  /** A conta de quem entrou, para a troca com a senha atual (4.2, C). Sem ela, só essa rota responde `503`. */
+  readonly dados?: DadosDaConta
 }
 
 export interface ContextoDaSenha {
@@ -191,18 +202,83 @@ export function rotaDaSenha(contexto: ContextoDaSenha): Hono {
     /* Dentro neste aparelho, com a geração nova; fora dos outros (3.4, C). */
     c.header('Set-Cookie', cabecalhoDaSessao(valorDaSessao({ contaId, emitidaEm: agora, geracao }, dep.segredos)))
 
-    const aviso = emailDeSenhaTrocada(conta.email, conta.nome, HORA_DO_AVISO.format(new Date(agora)))
-    const tarefa = dep.carteiro.enviar(aviso).then(
-      (saiu) => {
-        if (!saiu) console.error(`conta ${contaId}: o aviso da troca de senha não saiu`)
-      },
-      (erro: unknown) => console.error(`conta ${contaId}: o aviso da troca de senha não saiu: ${(erro as Error).message}`),
-    )
-    ;(dep.emSegundoPlano ?? ((solta) => void solta))(tarefa)
+    avisarDaTroca(dep, contaId, conta.email, conta.nome, agora)
     return c.json(dentro(true), 200)
   })
 
+  /* A troca em Meus dados, com a senha atual (4.2, C). */
+  rota.post('/trocar', ligada, limiteDoCorpo, async (c) => {
+    const dep = contexto.senha as DependenciasDaSenha
+    if (dep.dados === undefined) throw new ErroDaApi(503, 'SENHA_INDISPONIVEL', 'Troca de senha não configurada')
+    const { atual, nova } = await corpo(c)
+    if (
+      typeof atual !== 'string' ||
+      atual.length > SENHA_MAIS_LONGA ||
+      typeof nova !== 'string' ||
+      nova.length > SENHA_MAIS_LONGA
+    ) {
+      throw new ErroDaApi(400, 'CORPO_INVALIDO', 'O corpo não é uma troca de senha')
+    }
+
+    const ip = ipDaRequisicao((nome) => c.req.header(nome))
+    if (!(await dep.limite.registrar(resumirIp(ip, dep.sal)))) {
+      throw new ErroDaApi(429, 'LIMITE_EXCEDIDO', 'Pedidos demais deste endereço')
+    }
+
+    const agora = contexto.relogio().getTime()
+    const { conta, acesso } = await quemEntrou(c, dep.dados, dep.segredos, agora)
+    const tentativasDemais = new ErroDaApi(429, 'TENTATIVAS_DEMAIS', 'Tentativas demais: espere 15 minutos')
+    if (conta.bloqueadaAte !== null && agora < conta.bloqueadaAte) throw tentativasDemais
+
+    /* A senha atual: o erro conta como no entrar, e o quinto espera (3.3, C). */
+    if (!(await conferirSenha(atual, acesso.resumoDaSenha))) {
+      const erros = acesso.errosSeguidos + 1
+      if (erros >= ERROS_ATE_ESPERAR) {
+        await dep.contas.registrarErroDeSenha(conta.id, 0, agora + ESPERA_DAS_TENTATIVAS_MS)
+        console.info(`conta ${conta.id}: ${ERROS_ATE_ESPERAR} erros de senha seguidos, 15 minutos de espera`)
+        throw tentativasDemais
+      }
+      await dep.contas.registrarErroDeSenha(conta.id, erros, null)
+      throw new ErroDaApi(403, 'CREDENCIAIS_INVALIDAS', 'A senha atual não confere')
+    }
+
+    if (nova.length < TAMANHO_MINIMO_DA_SENHA) {
+      throw new ErroDaApi(422, 'SENHA_FRACA', `A senha precisa de pelo menos ${TAMANHO_MINIMO_DA_SENHA} caracteres`, [
+        'SENHA_CURTA',
+      ])
+    }
+    const motivo = await motivoDaSenhaFraca(nova, dep.senhaVazada)
+    if (motivo !== null) throw new ErroDaApi(422, 'SENHA_FRACA', 'A senha é comum ou vazada', [motivo])
+
+    /* O mesmo lote da troca pelo link: a geração somada, os erros zerados, o bloqueio vencido tirado. */
+    const geracao = acesso.geracao + 1
+    const trocada = await dep.contas.trocarSenha(conta.id, {
+      resumoDaSenha: await resumirSenha(nova),
+      geracao,
+      confirmarEm: null,
+      tirarBloqueio: conta.bloqueadaAte !== null,
+    })
+    if (!trocada) throw new ErroDaApi(500, 'FALHA_INTERNA', 'Falha interna')
+    console.info(`conta ${conta.id}: senha trocada em Meus dados`)
+
+    c.header('Set-Cookie', cabecalhoDaSessao(valorDaSessao({ contaId: conta.id, emitidaEm: agora, geracao }, dep.segredos)))
+    avisarDaTroca(dep, conta.id, conta.email, conta.nome, agora)
+    return c.json(dentro(conta.confirmadaEm !== null), 200)
+  })
+
   return rota
+}
+
+/** O aviso "Sua senha foi trocada" (3.4, D), depois da resposta. */
+function avisarDaTroca(dep: DependenciasDaSenha, contaId: string, email: string, nome: string, agora: number): void {
+  const aviso = emailDeSenhaTrocada(email, nome, HORA_DO_AVISO.format(new Date(agora)))
+  const tarefa = dep.carteiro.enviar(aviso).then(
+    (saiu) => {
+      if (!saiu) console.error(`conta ${contaId}: o aviso da troca de senha não saiu`)
+    },
+    (erro: unknown) => console.error(`conta ${contaId}: o aviso da troca de senha não saiu: ${(erro as Error).message}`),
+  )
+  ;(dep.emSegundoPlano ?? ((solta) => void solta))(tarefa)
 }
 
 /** O trabalho do pedido, depois da resposta: os freios, a conta, e o link ou o aviso da conta desativada. */

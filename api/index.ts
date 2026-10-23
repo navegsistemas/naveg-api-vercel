@@ -138,6 +138,8 @@ const senha: DependenciasDaSenha | null =
         segredos: segredosDaSessao,
         sal: protecao.upstashToken,
         emSegundoPlano: waitUntil,
+        /* A troca com a senha atual, em Meus dados (4.2, C). */
+        dados: contas,
       }
 
 /* Meus dados pede só quem entrou: a conta e o segredo que assina o cookie. */

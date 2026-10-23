@@ -385,9 +385,9 @@ describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PU
     expect((await banco.doc(`${base}/contasDeCliente/conta-1`).get()).data()).not.toHaveProperty('bloqueadaAte')
     expect((await banco.doc(`${base}/resumos/contasDeCliente`).get()).data()).toMatchObject({ confirmadas: 2 })
 
-    /* O PR 9a: Meus dados lê a conta e a geração juntas, e grava o nome e o celular — sob as Rules. */
+    /* O PR 9a: Meus dados lê a conta e os segredos de acesso juntos, e grava o nome e o celular — sob as Rules. */
     const meus = await contas.paraMeusDados('conta-1')
-    expect(meus?.geracao).toBe(1)
+    expect(meus?.acesso).toEqual({ resumoDaSenha: novoResumo, geracao: 1, errosSeguidos: 0 })
     expect(meus?.conta).toMatchObject({ id: 'conta-1', nome: 'Maria Souza', email: 'maria@exemplo.com.br' })
     expect(await contas.paraMeusDados('nao-existe')).toBeNull()
 

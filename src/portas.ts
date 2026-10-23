@@ -179,10 +179,13 @@ export interface ContasDoCliente {
   paraSessao(contaId: string): Promise<ContaDaSessao | null>
 }
 
-/** O que Meus dados lê: a conta inteira e a geração da sessão, para conferir o cookie na mesma leitura (4.2). */
+/**
+ * O que Meus dados lê: a conta inteira e os segredos de acesso — a geração, para conferir o cookie na mesma leitura, e
+ * o resumo da senha, para trocá-la com a atual (4.2, C).
+ */
 export interface ContaDosMeusDados {
   readonly conta: ContaDoCliente
-  readonly geracao: number
+  readonly acesso: SegredoDeAcesso
 }
 
 /** O que a pessoa corrige sozinha (4.2, A): já normalizado pelo domínio. */
@@ -196,7 +199,7 @@ export interface DadosCorrigidos {
  * precisam saber dela.
  */
 export interface DadosDaConta {
-  /** A conta e a geração, ou `null` quando a conta não existe mais (ou não tem a forma da regra). */
+  /** A conta e os segredos de acesso, ou `null` quando a conta não existe mais (ou não tem a forma da regra). */
   paraMeusDados(contaId: string): Promise<ContaDosMeusDados | null>
   /** Grava o nome e o celular. `false`: o banco recusou, e o log diz o código. */
   salvarDados(contaId: string, dados: DadosCorrigidos): Promise<boolean>

@@ -310,7 +310,7 @@ export function contasNoFirestore(obter: () => Promise<Firestore>, agenciaId: st
         console.error(`conta ${contaId} sem a forma da regra: Meus dados recusado`)
         return null
       }
-      return { conta: lida, geracao: segredos.geracao }
+      return { conta: lida, acesso: segredos }
     },
 
     async salvarDados(contaId, dados) {
