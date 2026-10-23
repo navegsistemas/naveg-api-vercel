@@ -99,7 +99,7 @@ const CODIGO = /^[A-Za-z0-9_-]{43}$/
 const EMAIL_MAIS_LONGO = 254
 
 /** "22/10/2026, 19:40", na hora de Belém, para o aviso da troca. */
-const HORA_DO_AVISO = new Intl.DateTimeFormat('pt-BR', {
+export const HORA_DO_AVISO = new Intl.DateTimeFormat('pt-BR', {
   timeZone: FUSO_DA_OPERACAO,
   dateStyle: 'short',
   timeStyle: 'short',

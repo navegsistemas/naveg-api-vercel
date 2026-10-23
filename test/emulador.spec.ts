@@ -23,6 +23,7 @@ import {
   loteDaContaNova,
   montarEncomenda,
   montarReserva,
+  type ContaDoCliente,
   type Reserva,
   type RespostasDaEncomenda,
 } from '@navegsistemas/domain'
@@ -417,5 +418,27 @@ describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PU
     expect((await banco.doc(`${base}/contasDeCliente/conta-1/segredos/trocaDeEmail`).get()).exists).toBe(false)
     expect(await contas.existeComEmail('maria.lima@exemplo.com.br')).toBe(true)
     expect(await contas.existeComEmail('maria@exemplo.com.br')).toBe(false)
+
+    /* O PR 10: apagar a conta com documento leva o índice, os segredos e uma do resumo, num lote — sob as Rules. O
+       documento entra pelo admin, como entraria na primeira compra. */
+    await banco.doc(`${base}/contasDeCliente/conta-1`).update({ tipoDocumento: 'CPF', numeroDocumento: '52998224725' })
+    await banco.doc(`${base}/documentosDeConta/CPF:52998224725`).set({ contaId: 'conta-1' })
+    const comDocumento = (await contas.paraMeusDados('conta-1'))?.conta as ContaDoCliente
+    expect(comDocumento.documento).toEqual({ tipo: 'CPF', numero: '52998224725' })
+    expect(await deOutra.apagarConta(comDocumento)).toBe(false)
+
+    expect(await contas.apagarConta(comDocumento)).toBe(true)
+    for (const caminho of [
+      'contasDeCliente/conta-1',
+      'contasDeCliente/conta-1/segredos/acesso',
+      'contasDeCliente/conta-1/segredos/confirmacao',
+      'contasDeCliente/conta-1/segredos/trocaDeSenha',
+      'contasDeCliente/conta-1/segredos/trocaDeEmail',
+      'documentosDeConta/CPF:52998224725',
+    ]) {
+      expect((await banco.doc(`${base}/${caminho}`).get()).exists, caminho).toBe(false)
+    }
+    expect((await banco.doc(`${base}/resumos/contasDeCliente`).get()).data()).toMatchObject({ total: 1, confirmadas: 1 })
+    expect(await contas.paraMeusDados('conta-1')).toBeNull()
   }, 30_000)
 })

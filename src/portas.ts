@@ -212,6 +212,11 @@ export interface DadosDaConta {
    * fica confirmada, como no link de confirmação. `false`: o banco recusou.
    */
   trocarEmail(contaId: string, novoEmail: string, confirmarEm: number | null): Promise<boolean>
+  /**
+   * Apaga a conta, o índice do documento, os segredos todos e uma do resumo, **juntos** (4.2, E; O7). Recebe a conta
+   * lida, de onde sai o lote do domínio (`loteDaContaApagada`). `false`: o banco recusou.
+   */
+  apagarConta(conta: ContaDoCliente): Promise<boolean>
 }
 
 /**

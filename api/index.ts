@@ -31,6 +31,7 @@ import { loteNoFirestore, reservaNoFirestore } from '../src/firestore/reserva-fi
 import { sessaoDoServicoNoFirebase, UID_DO_SERVICO } from '../src/firestore/servico.js'
 import { limiteNoUpstash, travaNoUpstash } from '../src/protecao/limite-upstash.js'
 import { ACAO_DO_CADASTRO, ACAO_DO_ENTRAR, desafioNaCloudflare } from '../src/protecao/turnstile.js'
+import type { DependenciasDoApagar } from '../src/rotas/apagar.js'
 import { LIMITE_DO_REENVIO, type DependenciasDoCadastro } from '../src/rotas/conta.js'
 import type { DependenciasDosDados } from '../src/rotas/dados.js'
 import type { DependenciasDoEmail } from '../src/rotas/email.js'
@@ -170,6 +171,20 @@ const email: DependenciasDoEmail | null =
         emSegundoPlano: waitUntil,
       }
 
+/* Apagar a conta pede o que a troca de e-mail pede: o aviso sai, e a sessão. O limite por IP é o do cadastro. */
+const apagar: DependenciasDoApagar | null =
+  protecao === null || contas === null || contaDeEnvio === null || segredosDaSessao === null
+    ? null
+    : {
+        contas,
+        dados: contas,
+        segredos: segredosDaSessao,
+        limite: limiteNoUpstash(protecao.upstashUrl, protecao.upstashToken, undefined, undefined, 'naveg:cadastro'),
+        carteiro: carteiroNoWorkspace(contaDeEnvio),
+        sal: protecao.upstashToken,
+        emSegundoPlano: waitUntil,
+      }
+
 /* O `handle` do `@hono/node-server/vercel` (1.x) era só isto, e a 2.x tirou o atalho: o ouvinte de requisição do
    Node, que traduz o `IncomingMessage` da função no `Request` do app. */
 const app = criarApp({
@@ -181,6 +196,7 @@ const app = criarApp({
   senha,
   dados,
   email,
+  apagar,
 })
 
 export default getRequestListener(app.fetch)

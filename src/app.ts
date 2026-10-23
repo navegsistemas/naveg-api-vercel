@@ -20,6 +20,7 @@ import { ErroDaApi, type CorpoDeErro } from './erros.js'
 import { leitorComCache } from './catalogo-em-cache.js'
 import type { LeitorDoCatalogo, Relogio } from './portas.js'
 import { rotaDoCatalogo } from './rotas/catalogo.js'
+import { rotaDoApagar, type DependenciasDoApagar } from './rotas/apagar.js'
 import { rotaDaConta, type DependenciasDoCadastro } from './rotas/conta.js'
 import { rotaDosDados, type DependenciasDosDados } from './rotas/dados.js'
 import { rotaDoEmail, type DependenciasDoEmail } from './rotas/email.js'
@@ -44,6 +45,8 @@ export interface Dependencias {
   readonly dados?: DependenciasDosDados | null
   /** O que a troca de e-mail precisa. Ausente ou `null`: as rotas dela respondem `503`. */
   readonly email?: DependenciasDoEmail | null
+  /** O que apagar a conta precisa. Ausente ou `null`: a rota responde `503`. */
+  readonly apagar?: DependenciasDoApagar | null
   readonly relogio?: Relogio
 }
 
@@ -56,6 +59,7 @@ export function criarApp({
   senha = null,
   dados = null,
   email = null,
+  apagar = null,
   relogio = () => new Date(),
 }: Dependencias): Hono {
   const app = new Hono()
@@ -88,6 +92,7 @@ export function criarApp({
   app.route('/conta/senha', rotaDaSenha({ origensPermitidas: config.origensPermitidas, relogio, senha }))
   app.route('/conta/dados', rotaDosDados({ origensPermitidas: config.origensPermitidas, relogio, dados }))
   app.route('/conta/email', rotaDoEmail({ origensPermitidas: config.origensPermitidas, relogio, email }))
+  app.route('/conta/apagar', rotaDoApagar({ origensPermitidas: config.origensPermitidas, relogio, apagar }))
   app.route('/eco', rotaDeEco())
 
   app.notFound((c) => {
