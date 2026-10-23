@@ -144,6 +144,90 @@ export function emailDeContaDesativada(para: string): Email {
   }
 }
 
+/**
+ * O e-mail com o meio escondido, para o aviso ao endereço antigo: "joao.lima@exemplo.com.br" → "j•••a@exemplo.com.br".
+ * Quem lê reconhece o próprio pedido, e quem não pediu não fica sabendo o endereço inteiro de quem pediu.
+ */
+export function emailMascarado(email: string): string {
+  const arroba = email.lastIndexOf('@')
+  const nome = email.slice(0, arroba)
+  const visivel = nome.length <= 2 ? `${nome.slice(0, 1)}•••` : `${nome.slice(0, 1)}•••${nome.slice(-1)}`
+  return `${visivel}${email.slice(arroba)}`
+}
+
+/** **Confirme o e-mail novo** (4.2, B): o link de 24 horas, ao endereço que vai valer. */
+export function emailDeTrocaDeEmail(para: string, nome: string, link: string): Email {
+  const ola = `Olá, ${primeiroNome(nome)}!`
+  const frase = 'Recebemos um pedido para usar este e-mail na sua conta do site da NAVEG.'
+  const aviso = 'Se você não pediu, ignore este e-mail: sem a confirmação, nada muda.'
+  return {
+    para,
+    assunto: 'Confirme seu e-mail novo na NAVEG',
+    texto: [
+      ola,
+      '',
+      frase,
+      '',
+      `Confirmar o e-mail novo: ${link}`,
+      '',
+      'O link vale por 24 horas. O e-mail antigo continua valendo até a confirmação.',
+      '',
+      aviso,
+      RODAPE_EM_TEXTO,
+    ].join('\n'),
+    html: html(
+      `<p style="${PARAGRAFO}">${escapar(ola)}</p>
+<p style="${PARAGRAFO}">${escapar(frase)}</p>
+<p style="margin:0 0 18px"><a href="${escapar(link)}" style="display:inline-block;padding:13px 22px;border-radius:4px;background:#fa8b17;color:#1b1006;font-weight:bold;text-decoration:none">Confirmar o e-mail novo</a></p>
+<p style="margin:0 0 6px;font-size:13px;color:#6b5443">O link vale por 24 horas. O e-mail antigo continua valendo até a confirmação. Se o botão não abrir, copie este endereço no navegador:</p>
+<p style="margin:0;font-family:Consolas,monospace;font-size:12px;color:#103a5b;word-break:break-all">${escapar(link)}</p>`,
+      `${escapar(aviso)}<br>${escapar(RODAPE_EM_TEXTO)}`,
+    ),
+  }
+}
+
+/**
+ * **O aviso ao e-mail antigo** (4.2, B; PO, 2026-10-23): sai no pedido, e não só na troca feita, para a dona da conta
+ * saber enquanto o link ainda não foi aberto.
+ */
+export function emailDeTrocaDeEmailPedida(para: string, nome: string, novoEmail: string): Email {
+  const ola = `Olá, ${primeiroNome(nome)}!`
+  const frase = `Foi pedido, na sua conta do site da NAVEG, trocar o e-mail para ${emailMascarado(novoEmail)}. A troca só vale depois que o e-mail novo for confirmado.`
+  const saida = `Se não foi você, troque sua senha e fale com o atendimento pelo WhatsApp ${ATENDIMENTO_POR_WHATSAPP}.`
+  return {
+    para,
+    assunto: 'Pedido de troca do e-mail da sua conta',
+    texto: [ola, '', frase, '', saida, '', RODAPE_EM_TEXTO].join('\n'),
+    html: html(
+      `<p style="${PARAGRAFO}">${escapar(ola)}</p>
+<p style="${PARAGRAFO}">${escapar(frase)}</p>
+<p style="${PARAGRAFO}"><b>${escapar(saida)}</b></p>`,
+      escapar(RODAPE_EM_TEXTO),
+    ),
+  }
+}
+
+/**
+ * **O e-mail novo já é de outra conta** (4.2, B; PO, 2026-10-23): o aviso do cadastro repetido, ao dono desse
+ * endereço, sem link. A tela respondeu como sempre; só ele fica sabendo.
+ */
+export function emailDeEmailJaUsado(para: string, site: string): Email {
+  const frase = "Alguém tentou usar este e-mail numa conta da NAVEG. Se foi você, entre ou use 'Esqueci a senha'."
+  const entrar = `${site.replace(/\/$/, '')}/conta`
+  const aviso = 'Se não foi você, não precisa fazer nada: sua conta continua como estava.'
+  return {
+    para,
+    assunto: 'Tentativa de usar seu e-mail na NAVEG',
+    texto: [frase, '', `Entrar: ${entrar}`, '', aviso, RODAPE_EM_TEXTO].join('\n'),
+    html: html(
+      `<p style="${PARAGRAFO}">${escapar(frase)}</p>
+<p style="margin:0 0 18px"><a href="${escapar(entrar)}" style="display:inline-block;padding:13px 22px;border-radius:4px;background:#fa8b17;color:#1b1006;font-weight:bold;text-decoration:none">Entrar</a></p>
+<p style="${PARAGRAFO}">${escapar(aviso)}</p>`,
+      escapar(RODAPE_EM_TEXTO),
+    ),
+  }
+}
+
 /** **Sua senha foi trocada** (3.4, D): a hora, e o WhatsApp para quem não reconhece a troca. */
 export function emailDeSenhaTrocada(para: string, nome: string, quando: string): Email {
   const ola = `Olá, ${primeiroNome(nome)}!`

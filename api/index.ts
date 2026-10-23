@@ -33,6 +33,7 @@ import { limiteNoUpstash, travaNoUpstash } from '../src/protecao/limite-upstash.
 import { ACAO_DO_CADASTRO, ACAO_DO_ENTRAR, desafioNaCloudflare } from '../src/protecao/turnstile.js'
 import { LIMITE_DO_REENVIO, type DependenciasDoCadastro } from '../src/rotas/conta.js'
 import type { DependenciasDosDados } from '../src/rotas/dados.js'
+import type { DependenciasDoEmail } from '../src/rotas/email.js'
 import {
   ERROS_ATE_ESPERAR,
   ESPERA_DAS_TENTATIVAS_MS,
@@ -146,6 +147,29 @@ const senha: DependenciasDaSenha | null =
 const dados: DependenciasDosDados | null =
   contas === null || segredosDaSessao === null ? null : { dados: contas, segredos: segredosDaSessao }
 
+/* A troca de e-mail pede o que o "Esqueci a senha" pede. O limite por IP e a trava do e-mail são os do cadastro (a
+   trava impede o cadastro e a troca de pegarem o mesmo e-mail ao mesmo tempo); os 5 por hora, num contador próprio. */
+const email: DependenciasDoEmail | null =
+  protecao === null || contas === null || contaDeEnvio === null || segredosDaSessao === null
+    ? null
+    : {
+        contas,
+        dados: contas,
+        segredos: segredosDaSessao,
+        limite: limiteNoUpstash(protecao.upstashUrl, protecao.upstashToken, undefined, undefined, 'naveg:cadastro'),
+        trava: travaNoUpstash(protecao.upstashUrl, protecao.upstashToken, 'naveg:cadastro:email'),
+        limiteDoPedido: limiteNoUpstash(
+          protecao.upstashUrl,
+          protecao.upstashToken,
+          LIMITE_DO_REENVIO,
+          undefined,
+          'naveg:troca-email:conta',
+        ),
+        carteiro: carteiroNoWorkspace(contaDeEnvio),
+        sal: protecao.upstashToken,
+        emSegundoPlano: waitUntil,
+      }
+
 /* O `handle` do `@hono/node-server/vercel` (1.x) era só isto, e a 2.x tirou o atalho: o ouvinte de requisição do
    Node, que traduz o `IncomingMessage` da função no `Request` do app. */
 const app = criarApp({
@@ -156,6 +180,7 @@ const app = criarApp({
   entrar,
   senha,
   dados,
+  email,
 })
 
 export default getRequestListener(app.fetch)

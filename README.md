@@ -312,6 +312,23 @@ passa pelas conferências da troca pelo link (`422 SENHA_FRACA`, com `SENHA_CURT
 Aceita: a geração somada (a conta sai dos outros aparelhos), `200 DENTRO` com o cookie novo, e o aviso "Sua senha foi
 trocada" (4.2, C).
 
+### `POST /conta/email/trocar` e `/conta/email/confirmacao` — trocar o e-mail (#30, PR 9c)
+
+O pedido, `{ "senha": "…", "novoEmail": "…" }`, é só para quem entrou, com a senha atual conferida como na troca de
+senha. O e-mail sem forma, ou o mesmo de agora, é `422 CADASTRO_INVALIDO` com `EMAIL`. Depois disso, **sempre `202
+CONFIRA_O_EMAIL`**, e o resto roda depois da resposta (4.2, B; PO, 2026-10-23):
+
+- um pedido a cada 60 segundos e 5 por hora, por conta (`naveg:troca-email:conta`);
+- **o e-mail antigo recebe o aviso já no pedido**, com o novo mascarado (`m•••a@exemplo.com.br`);
+- o novo **já de outra conta** recebe o aviso do cadastro repetido, sem link;
+- os outros, o link de 24 horas (`/conta/confirmar-email#<contaId>.<codigo>`), com o e-mail novo guardado em
+  `segredos/trocaDeEmail`. O novo pedido invalida o anterior.
+
+O link aberto manda `{ contaId, codigo }` à `confirmacao`, sem sessão: `200 EMAIL_TROCADO`; `410 LINK_INVALIDO` ou
+`LINK_VENCIDO`; `403 CONTA_DESATIVADA`; e `409 EMAIL_EM_USO` quando o e-mail ficou de outra conta no meio do caminho
+(com a trava do cadastro no e-mail novo). A conta por confirmar fica confirmada. A troca não tira a conta dos outros
+aparelhos.
+
 ### `GET /eco`
 
 O endereço que a API enxerga, e os três cabeçalhos de onde ele sai, devolvidos a quem chamou, sem cache. Serve

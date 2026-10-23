@@ -400,5 +400,22 @@ describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PU
     /* A regra recusa o nome vazio e a outra agência, e o adaptador diz `false`. */
     expect(await contas.salvarDados('conta-1', { nome: '', telefone: '5591988887777' })).toBe(false)
     expect(await deOutra.salvarDados('conta-1', { nome: 'Outra', telefone: '5591988887777' })).toBe(false)
+
+    /* O PR 9c: o pedido de troca de e-mail guardado nos segredos, e a troca que o leva para a conta — sob as Rules. */
+    const trocaDeEmail = { resumoDoCodigo: 'f'.repeat(64), valeAte: 1_792_700_000_000, novoEmail: 'maria.lima@exemplo.com.br' }
+    expect(await contas.paraTrocarEmail('conta-1')).toEqual({ troca: null, ativa: true, confirmadaEm: 1_792_600_300_000 })
+    expect(await contas.gravarTrocaDeEmail('conta-1', trocaDeEmail)).toBe(true)
+    expect((await contas.paraTrocarEmail('conta-1'))?.troca).toEqual(trocaDeEmail)
+    expect(await contas.paraTrocarEmail('nao-existe')).toBeNull()
+    expect(await deOutra.gravarTrocaDeEmail('conta-1', trocaDeEmail)).toBe(false)
+
+    expect(await contas.trocarEmail('conta-1', 'maria.lima@exemplo.com.br', null)).toBe(true)
+    expect((await banco.doc(`${base}/contasDeCliente/conta-1`).get()).data()).toMatchObject({
+      email: 'maria.lima@exemplo.com.br',
+      confirmadaEm: 1_792_600_300_000,
+    })
+    expect((await banco.doc(`${base}/contasDeCliente/conta-1/segredos/trocaDeEmail`).get()).exists).toBe(false)
+    expect(await contas.existeComEmail('maria.lima@exemplo.com.br')).toBe(true)
+    expect(await contas.existeComEmail('maria@exemplo.com.br')).toBe(false)
   }, 30_000)
 })

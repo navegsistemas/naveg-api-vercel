@@ -22,6 +22,7 @@ import type { LeitorDoCatalogo, Relogio } from './portas.js'
 import { rotaDoCatalogo } from './rotas/catalogo.js'
 import { rotaDaConta, type DependenciasDoCadastro } from './rotas/conta.js'
 import { rotaDosDados, type DependenciasDosDados } from './rotas/dados.js'
+import { rotaDoEmail, type DependenciasDoEmail } from './rotas/email.js'
 import { rotaDeEco } from './rotas/eco.js'
 import { rotaDeReservas, type DependenciasDoEnvio } from './rotas/reservas.js'
 import { rotaDeSaude } from './rotas/saude.js'
@@ -41,6 +42,8 @@ export interface Dependencias {
   readonly senha?: DependenciasDaSenha | null
   /** O que Meus dados precisa. Ausente ou `null`: as rotas dele respondem `503`. */
   readonly dados?: DependenciasDosDados | null
+  /** O que a troca de e-mail precisa. Ausente ou `null`: as rotas dela respondem `503`. */
+  readonly email?: DependenciasDoEmail | null
   readonly relogio?: Relogio
 }
 
@@ -52,6 +55,7 @@ export function criarApp({
   entrar = null,
   senha = null,
   dados = null,
+  email = null,
   relogio = () => new Date(),
 }: Dependencias): Hono {
   const app = new Hono()
@@ -83,6 +87,7 @@ export function criarApp({
   app.route('/conta', rotaDaSessao({ origensPermitidas: config.origensPermitidas, relogio, entrar }))
   app.route('/conta/senha', rotaDaSenha({ origensPermitidas: config.origensPermitidas, relogio, senha }))
   app.route('/conta/dados', rotaDosDados({ origensPermitidas: config.origensPermitidas, relogio, dados }))
+  app.route('/conta/email', rotaDoEmail({ origensPermitidas: config.origensPermitidas, relogio, email }))
   app.route('/eco', rotaDeEco())
 
   app.notFound((c) => {

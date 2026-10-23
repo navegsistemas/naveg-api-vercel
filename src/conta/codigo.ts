@@ -35,6 +35,11 @@ export function linkDeConfirmacao(site: string, contaId: string, codigo: string)
   return `${site.replace(/\/$/, '')}/conta/confirmar#${contaId}.${codigo}`
 }
 
+/** O endereço do link da troca de e-mail (4.2, B), que vale 24 horas, como o de confirmação. */
+export function linkDeTrocaDeEmail(site: string, contaId: string, codigo: string): string {
+  return `${site.replace(/\/$/, '')}/conta/confirmar-email#${contaId}.${codigo}`
+}
+
 /** O link de troca de senha vale 1 hora, e uma vez só (3.4, A). */
 export const PRAZO_DA_TROCA_MS = 60 * 60 * 1000
 
