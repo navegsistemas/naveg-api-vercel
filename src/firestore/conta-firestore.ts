@@ -37,7 +37,7 @@ import {
 
 import { contaDoDocumento } from '@navegsistemas/domain'
 
-import type { ContasDoCliente, SegredoDeAcesso, SegredoDeConfirmacao } from '../portas.js'
+import type { ContasDoCliente, DadosDaConta, SegredoDeAcesso, SegredoDeConfirmacao } from '../portas.js'
 
 export const COLECAO_DE_CONTAS = 'contasDeCliente'
 export const SEGREDO_DE_ACESSO = 'segredos/acesso'
@@ -45,7 +45,7 @@ export const SEGREDO_DE_CONFIRMACAO = 'segredos/confirmacao'
 export const SEGREDO_DE_TROCA = 'segredos/trocaDeSenha'
 export const RESUMO_DAS_CONTAS = 'resumos/contasDeCliente'
 
-export function contasNoFirestore(obter: () => Promise<Firestore>, agenciaId: string): ContasDoCliente {
+export function contasNoFirestore(obter: () => Promise<Firestore>, agenciaId: string): ContasDoCliente & DadosDaConta {
   const daAgencia = (caminho: string) => `empresas/${agenciaId}/${caminho}`
 
   return {
@@ -295,6 +295,36 @@ export function contasNoFirestore(obter: () => Promise<Firestore>, agenciaId: st
       const segredos = segredoDeAcesso(acesso.data())
       if (lida === null || segredos === null) return null
       return { ativa: lida.ativa, confirmada: lida.confirmadaEm !== null, geracao: segredos.geracao }
+    },
+
+    async paraMeusDados(contaId) {
+      const db = await obter()
+      const [conta, acesso] = await Promise.all([
+        getDoc(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}`))),
+        getDoc(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}/${SEGREDO_DE_ACESSO}`))),
+      ])
+      if (!conta.exists()) return null
+      const lida = contaDoDocumento(contaId, conta.data())
+      const segredos = segredoDeAcesso(acesso.data())
+      if (lida === null || segredos === null) {
+        console.error(`conta ${contaId} sem a forma da regra: Meus dados recusado`)
+        return null
+      }
+      return { conta: lida, geracao: segredos.geracao }
+    },
+
+    async salvarDados(contaId, dados) {
+      try {
+        const db = await obter()
+        await updateDoc(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}`)), {
+          nome: dados.nome,
+          telefone: dados.telefone,
+        })
+        return true
+      } catch (erro) {
+        console.error(`conta ${contaId}: dados não salvos, erro do Firestore de código ${codigoDoErro(erro)}`)
+        return false
+      }
     },
   }
 }

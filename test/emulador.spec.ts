@@ -384,5 +384,21 @@ describe.skipIf(!EMULADOR)(`ponta a ponta, no emulador${EMULADOR ? '' : ' — PU
     ).toBe(true)
     expect((await banco.doc(`${base}/contasDeCliente/conta-1`).get()).data()).not.toHaveProperty('bloqueadaAte')
     expect((await banco.doc(`${base}/resumos/contasDeCliente`).get()).data()).toMatchObject({ confirmadas: 2 })
+
+    /* O PR 9a: Meus dados lê a conta e a geração juntas, e grava o nome e o celular — sob as Rules. */
+    const meus = await contas.paraMeusDados('conta-1')
+    expect(meus?.geracao).toBe(1)
+    expect(meus?.conta).toMatchObject({ id: 'conta-1', nome: 'Maria Souza', email: 'maria@exemplo.com.br' })
+    expect(await contas.paraMeusDados('nao-existe')).toBeNull()
+
+    expect(await contas.salvarDados('conta-1', { nome: 'Maria Souza Lima', telefone: '5591988887777' })).toBe(true)
+    expect((await banco.doc(`${base}/contasDeCliente/conta-1`).get()).data()).toMatchObject({
+      nome: 'Maria Souza Lima',
+      telefone: '5591988887777',
+      email: 'maria@exemplo.com.br',
+    })
+    /* A regra recusa o nome vazio e a outra agência, e o adaptador diz `false`. */
+    expect(await contas.salvarDados('conta-1', { nome: '', telefone: '5591988887777' })).toBe(false)
+    expect(await deOutra.salvarDados('conta-1', { nome: 'Outra', telefone: '5591988887777' })).toBe(false)
   }, 30_000)
 })
