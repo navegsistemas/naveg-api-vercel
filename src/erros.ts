@@ -51,6 +51,11 @@ export const CODIGOS = [
   'TENTATIVAS_DEMAIS',
   /** A senha certa de uma conta desativada pelo atendimento (3.3, F). */
   'CONTA_DESATIVADA',
+  /**
+   * O e-mail novo da troca (4.2, B) ficou de outra conta entre o pedido e o link. Só quem abriu o link, e provou ser o
+   * dono do e-mail, recebe este código.
+   */
+  'EMAIL_EM_USO',
   /** O pedido pede quem entrou, e o cookie falta, venceu ou não vale mais. */
   'SEM_SESSAO',
   /** Qualquer coisa nossa que deu errado. */

@@ -60,6 +60,15 @@ class Dados implements DadosDaConta {
     if (this.conta !== null) this.conta = { ...this.conta, ...dados }
     return true
   }
+  async gravarTrocaDeEmail() {
+    return true
+  }
+  async paraTrocarEmail() {
+    return null
+  }
+  async trocarEmail() {
+    return true
+  }
 }
 
 function montar(opcoes: { dados?: false } = {}) {

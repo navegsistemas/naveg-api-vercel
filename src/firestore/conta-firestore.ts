@@ -9,6 +9,8 @@
  *   servidor lê (ADR-0003, seção 4);
  * - `contasDeCliente/{id}/segredos/confirmacao` — o resumo do código do link de confirmação e o prazo (seção 3);
  * - `contasDeCliente/{id}/segredos/trocaDeSenha` — o mesmo, do link de troca de senha (3.4), apagado ao ser usado;
+ * - `contasDeCliente/{id}/segredos/trocaDeEmail` — o mesmo, do link da troca de e-mail (4.2, B), com o e-mail novo,
+ *   que só vai para a conta quando o link é aberto;
  * - `resumos/contasDeCliente` — o que a plataforma vê, sem dado pessoal: mais uma no `total`, e a `ultimaCriadaEm`;
  *   ao confirmar, mais uma nas `confirmadas`.
  *
@@ -37,12 +39,19 @@ import {
 
 import { contaDoDocumento } from '@navegsistemas/domain'
 
-import type { ContasDoCliente, DadosDaConta, SegredoDeAcesso, SegredoDeConfirmacao } from '../portas.js'
+import type {
+  ContasDoCliente,
+  DadosDaConta,
+  SegredoDeAcesso,
+  SegredoDeConfirmacao,
+  SegredoDeTrocaDeEmail,
+} from '../portas.js'
 
 export const COLECAO_DE_CONTAS = 'contasDeCliente'
 export const SEGREDO_DE_ACESSO = 'segredos/acesso'
 export const SEGREDO_DE_CONFIRMACAO = 'segredos/confirmacao'
 export const SEGREDO_DE_TROCA = 'segredos/trocaDeSenha'
+export const SEGREDO_DE_TROCA_DE_EMAIL = 'segredos/trocaDeEmail'
 export const RESUMO_DAS_CONTAS = 'resumos/contasDeCliente'
 
 export function contasNoFirestore(obter: () => Promise<Firestore>, agenciaId: string): ContasDoCliente & DadosDaConta {
@@ -326,7 +335,66 @@ export function contasNoFirestore(obter: () => Promise<Firestore>, agenciaId: st
         return false
       }
     },
+
+    async gravarTrocaDeEmail(contaId, troca) {
+      try {
+        const db = await obter()
+        /* Por cima do anterior: o link do pedido velho deixa de conferir. */
+        await setDoc(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}/${SEGREDO_DE_TROCA_DE_EMAIL}`)), { ...troca })
+        return true
+      } catch (erro) {
+        console.error(`conta ${contaId}: troca de e-mail não gravada, erro do Firestore de código ${codigoDoErro(erro)}`)
+        return false
+      }
+    },
+
+    async paraTrocarEmail(contaId) {
+      const db = await obter()
+      const [conta, troca] = await Promise.all([
+        getDoc(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}`))),
+        getDoc(doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}/${SEGREDO_DE_TROCA_DE_EMAIL}`))),
+      ])
+      if (!conta.exists()) return null
+      const lida = contaDoDocumento(contaId, conta.data())
+      if (lida === null) {
+        console.error(`conta ${contaId} sem a forma da regra: troca de e-mail recusada`)
+        return null
+      }
+      return { troca: segredoDeTrocaDeEmail(troca.data()), ativa: lida.ativa, confirmadaEm: lida.confirmadaEm }
+    },
+
+    async trocarEmail(contaId, novoEmail, confirmarEm) {
+      try {
+        const db = await obter()
+        const escritas = writeBatch(db)
+        const daConta = (caminho: string) => doc(db, daAgencia(`${COLECAO_DE_CONTAS}/${contaId}${caminho}`))
+        escritas.update(daConta(''), confirmarEm === null ? { email: novoEmail } : { email: novoEmail, confirmadaEm: confirmarEm })
+        /* Vale uma vez só. */
+        escritas.delete(daConta(`/${SEGREDO_DE_TROCA_DE_EMAIL}`))
+        if (confirmarEm !== null) {
+          /* Confirmada pelo link do e-mail novo: o link de confirmação do antigo sai, e o resumo conta mais uma. */
+          escritas.delete(daConta(`/${SEGREDO_DE_CONFIRMACAO}`))
+          escritas.set(
+            doc(db, daAgencia(RESUMO_DAS_CONTAS)),
+            { total: increment(0), confirmadas: increment(1) },
+            { merge: true },
+          )
+        }
+        await escritas.commit()
+        return true
+      } catch (erro) {
+        console.error(`conta ${contaId}: e-mail não trocado, erro do Firestore de código ${codigoDoErro(erro)}`)
+        return false
+      }
+    },
   }
+}
+
+/** O pedido de troca de e-mail lido → a forma da porta, ou `null` quando não há (ou não tem a forma esperada). */
+function segredoDeTrocaDeEmail(dado: unknown): SegredoDeTrocaDeEmail | null {
+  const link = segredoDeConfirmacao(dado)
+  const { novoEmail } = (dado ?? {}) as Record<string, unknown>
+  return link === null || typeof novoEmail !== 'string' ? null : { ...link, novoEmail }
 }
 
 /** Os segredos de acesso lidos → a forma da porta, ou `null` quando faltam (ou não têm a forma esperada). */

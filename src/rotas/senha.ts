@@ -51,6 +51,7 @@ import type {
   CarteiroDeEmail,
   ConsultaDeSenhaVazada,
   ContasDoCliente,
+  ContaDosMeusDados,
   DadosDaConta,
   LimitePorIp,
   Relogio,
@@ -227,20 +228,7 @@ export function rotaDaSenha(contexto: ContextoDaSenha): Hono {
 
     const agora = contexto.relogio().getTime()
     const { conta, acesso } = await quemEntrou(c, dep.dados, dep.segredos, agora)
-    const tentativasDemais = new ErroDaApi(429, 'TENTATIVAS_DEMAIS', 'Tentativas demais: espere 15 minutos')
-    if (conta.bloqueadaAte !== null && agora < conta.bloqueadaAte) throw tentativasDemais
-
-    /* A senha atual: o erro conta como no entrar, e o quinto espera (3.3, C). */
-    if (!(await conferirSenha(atual, acesso.resumoDaSenha))) {
-      const erros = acesso.errosSeguidos + 1
-      if (erros >= ERROS_ATE_ESPERAR) {
-        await dep.contas.registrarErroDeSenha(conta.id, 0, agora + ESPERA_DAS_TENTATIVAS_MS)
-        console.info(`conta ${conta.id}: ${ERROS_ATE_ESPERAR} erros de senha seguidos, 15 minutos de espera`)
-        throw tentativasDemais
-      }
-      await dep.contas.registrarErroDeSenha(conta.id, erros, null)
-      throw new ErroDaApi(403, 'CREDENCIAIS_INVALIDAS', 'A senha atual não confere')
-    }
+    await conferirSenhaAtual(dep.contas, { conta, acesso }, atual, agora)
 
     if (nova.length < TAMANHO_MINIMO_DA_SENHA) {
       throw new ErroDaApi(422, 'SENHA_FRACA', `A senha precisa de pelo menos ${TAMANHO_MINIMO_DA_SENHA} caracteres`, [
@@ -267,6 +255,29 @@ export function rotaDaSenha(contexto: ContextoDaSenha): Hono {
   })
 
   return rota
+}
+
+/**
+ * **A senha atual**, a prova de Meus dados (4.2, B e C): enquanto a conta espera, nem a certa passa; o erro conta como
+ * no entrar, e o quinto espera 15 minutos (3.3, C). Lança o erro da resposta; certa, não faz nada.
+ */
+export async function conferirSenhaAtual(
+  contas: ContasDoCliente,
+  { conta, acesso }: ContaDosMeusDados,
+  senha: string,
+  agora: number,
+): Promise<void> {
+  const tentativasDemais = new ErroDaApi(429, 'TENTATIVAS_DEMAIS', 'Tentativas demais: espere 15 minutos')
+  if (conta.bloqueadaAte !== null && agora < conta.bloqueadaAte) throw tentativasDemais
+  if (await conferirSenha(senha, acesso.resumoDaSenha)) return
+  const erros = acesso.errosSeguidos + 1
+  if (erros >= ERROS_ATE_ESPERAR) {
+    await contas.registrarErroDeSenha(conta.id, 0, agora + ESPERA_DAS_TENTATIVAS_MS)
+    console.info(`conta ${conta.id}: ${ERROS_ATE_ESPERAR} erros de senha seguidos, 15 minutos de espera`)
+    throw tentativasDemais
+  }
+  await contas.registrarErroDeSenha(conta.id, erros, null)
+  throw new ErroDaApi(403, 'CREDENCIAIS_INVALIDAS', 'A senha atual não confere')
 }
 
 /** O aviso "Sua senha foi trocada" (3.4, D), depois da resposta. */

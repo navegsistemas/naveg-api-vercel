@@ -203,6 +203,31 @@ export interface DadosDaConta {
   paraMeusDados(contaId: string): Promise<ContaDosMeusDados | null>
   /** Grava o nome e o celular. `false`: o banco recusou, e o log diz o código. */
   salvarDados(contaId: string, dados: DadosCorrigidos): Promise<boolean>
+  /** Grava o pedido de troca de e-mail por cima do anterior (4.2, B). `false`: o banco recusou. */
+  gravarTrocaDeEmail(contaId: string, troca: SegredoDeTrocaDeEmail): Promise<boolean>
+  /** A conta e o pedido de troca guardado, ou `null` quando não há conta com este id. */
+  paraTrocarEmail(contaId: string): Promise<ContaParaTrocarEmail | null>
+  /**
+   * O e-mail novo na conta e o pedido apagado (vale uma vez só), **juntos**; com `confirmarEm`, a conta por confirmar
+   * fica confirmada, como no link de confirmação. `false`: o banco recusou.
+   */
+  trocarEmail(contaId: string, novoEmail: string, confirmarEm: number | null): Promise<boolean>
+}
+
+/**
+ * O pedido de troca de e-mail guardado: `segredos/trocaDeEmail`. A forma dos outros links, mais o e-mail novo, que só
+ * vale depois do link aberto (4.2, B).
+ */
+export interface SegredoDeTrocaDeEmail extends SegredoDeConfirmacao {
+  readonly novoEmail: string
+}
+
+/** O que o link da troca de e-mail precisa da conta. */
+export interface ContaParaTrocarEmail {
+  /** `null`: não há pedido guardado — já usado, ou nunca feito. */
+  readonly troca: SegredoDeTrocaDeEmail | null
+  readonly ativa: boolean
+  readonly confirmadaEm: number | null
 }
 
 /** Uma mensagem pronta para sair (`conta/emails.ts`). */
