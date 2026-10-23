@@ -304,6 +304,14 @@ que não vale mais recebe `401 SEM_SESSAO` e sai do aparelho.
   `422 CADASTRO_INVALIDO`, com `NOME` ou `TELEFONE`. Responde `200` com os dados como ficaram. O nascimento e o
   documento só mudam pelo atendimento, no painel; o e-mail e a senha têm cada um o seu passo (PRs 9b e 9c).
 
+### `POST /conta/senha/trocar` — trocar a senha em Meus dados (#30, PR 9b)
+
+`{ "atual": "…", "nova": "…" }`, só para quem entrou. A senha atual é a prova, e **o erro dela conta nas tentativas
+de entrar**: `403 CREDENCIAIS_INVALIDAS`, e o quinto erro seguido espera 15 minutos (`429 TENTATIVAS_DEMAIS`). A nova
+passa pelas conferências da troca pelo link (`422 SENHA_FRACA`, com `SENHA_CURTA`, `SENHA_COMUM` ou `SENHA_VAZADA`).
+Aceita: a geração somada (a conta sai dos outros aparelhos), `200 DENTRO` com o cookie novo, e o aviso "Sua senha foi
+trocada" (4.2, C).
+
 ### `GET /eco`
 
 O endereço que a API enxerga, e os três cabeçalhos de onde ele sai, devolvidos a quem chamou, sem cache. Serve

@@ -52,7 +52,7 @@ class Dados implements DadosDaConta {
   readonly gravados: DadosCorrigidos[] = []
   async paraMeusDados(contaId: string): Promise<ContaDosMeusDados | null> {
     if (this.conta === null || contaId !== this.conta.id) return null
-    return { conta: this.conta, geracao: this.geracao }
+    return { conta: this.conta, acesso: { resumoDaSenha: 'scrypt$fictício', geracao: this.geracao, errosSeguidos: 0 } }
   }
   async salvarDados(_: string, dados: DadosCorrigidos) {
     if (this.gravacaoFalha) return false
