@@ -14,7 +14,7 @@ Não é uma API pública, não é um serviço de plataforma e não é a porta de
 | 0 | Esqueleto: Hono na Vercel, configuração que falha na partida, CORS, forma do erro, `GET /saude` | ✅ |
 | 1 | `GET /catalogo` — o catálogo do fluviapp, recortado pela concessão da NAVEG | ✅ |
 | 2 | `POST /reservas` — a reserva gravada com conta de serviço, com Turnstile e limite por IP | ✅ código · ⏳ ligar |
-| 3 | A conta do cliente (#30, em 10 PRs): `POST /conta`, o cadastro, é o PR 5; o e-mail, entrar e o resto vêm a seguir | 🔨 |
+| 3 | A conta do cliente (#30): feitos o cadastro, o e-mail, entrar e sair e esqueci a senha; Meus dados (PR 9, em três: os dados, a senha, o e-mail) e apagar a conta a seguir | 🔨 |
 
 Os passos 1 e 2 são os passos **9 e 10** do
 [plano do `naveg-front`](../naveg-front/docs/plano-de-implementacao.md) — o plano é um só, e é lá que ele mora.
@@ -291,6 +291,18 @@ Responde **sempre** `202 { "situacao": "CONFIRA_O_EMAIL" }`, com conta nova ou c
 A conta vai num lote só, sob as Rules do fluviapp: `empresas/{agência}/contasDeCliente/{id}`, os segredos em
 `…/segredos/acesso` (o resumo scrypt da senha, a geração e os erros seguidos; ADR-0003 do `naveg-front`) e mais
 uma no `resumos/contasDeCliente`.
+
+### `GET` e `POST /conta/dados` — Meus dados (#30, PR 9a)
+
+Só para quem entrou: o cookie é conferido como no `GET /conta/sessao` (a assinatura, a conta ativa, a geração), e o
+que não vale mais recebe `401 SEM_SESSAO` e sai do aparelho.
+
+- **`GET`** devolve `{ nome, email, telefone, dataNascimento, documento, confirmada }`, sem cache. O documento vem
+  **mascarado** pelo domínio (`CPF ###.###.247-25`), também para o dono (4.2, D; O12), ou `null` antes da primeira
+  compra.
+- **`POST`** recebe `{ nome, telefone }`, o "Salvar alterações" (4.2, A e F), e confere os dois como o cadastro:
+  `422 CADASTRO_INVALIDO`, com `NOME` ou `TELEFONE`. Responde `200` com os dados como ficaram. O nascimento e o
+  documento só mudam pelo atendimento, no painel; o e-mail e a senha têm cada um o seu passo (PRs 9b e 9c).
 
 ### `GET /eco`
 

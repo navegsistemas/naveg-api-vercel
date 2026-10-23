@@ -32,6 +32,7 @@ import { sessaoDoServicoNoFirebase, UID_DO_SERVICO } from '../src/firestore/serv
 import { limiteNoUpstash, travaNoUpstash } from '../src/protecao/limite-upstash.js'
 import { ACAO_DO_CADASTRO, ACAO_DO_ENTRAR, desafioNaCloudflare } from '../src/protecao/turnstile.js'
 import { LIMITE_DO_REENVIO, type DependenciasDoCadastro } from '../src/rotas/conta.js'
+import type { DependenciasDosDados } from '../src/rotas/dados.js'
 import {
   ERROS_ATE_ESPERAR,
   ESPERA_DAS_TENTATIVAS_MS,
@@ -139,6 +140,10 @@ const senha: DependenciasDaSenha | null =
         emSegundoPlano: waitUntil,
       }
 
+/* Meus dados pede só quem entrou: a conta e o segredo que assina o cookie. */
+const dados: DependenciasDosDados | null =
+  contas === null || segredosDaSessao === null ? null : { dados: contas, segredos: segredosDaSessao }
+
 /* O `handle` do `@hono/node-server/vercel` (1.x) era só isto, e a 2.x tirou o atalho: o ouvinte de requisição do
    Node, que traduz o `IncomingMessage` da função no `Request` do app. */
 const app = criarApp({
@@ -148,6 +153,7 @@ const app = criarApp({
   cadastro,
   entrar,
   senha,
+  dados,
 })
 
 export default getRequestListener(app.fetch)

@@ -5,7 +5,7 @@
  * falsas — sem rede, sem emulador, sem credencial — e o `api/index.ts` ser o único lugar que sabe que do outro
  * lado existe um banco.
  */
-import type { CatalogoDoFluviapp, EscritaDaConta, TipoDeLink } from '@navegsistemas/domain'
+import type { CatalogoDoFluviapp, ContaDoCliente, EscritaDaConta, TipoDeLink } from '@navegsistemas/domain'
 
 /**
  * O catálogo do fluviapp **inteiro**, como está no banco: o pool de todas as empresas e a concessão da NAVEG.
@@ -177,6 +177,29 @@ export interface ContasDoCliente {
   registrarEntrada(contaId: string, tinhaBloqueio: boolean): Promise<boolean>
   /** A conta e a geração da sessão, lidas em paralelo, ou `null` quando a conta não existe mais. */
   paraSessao(contaId: string): Promise<ContaDaSessao | null>
+}
+
+/** O que Meus dados lê: a conta inteira e a geração da sessão, para conferir o cookie na mesma leitura (4.2). */
+export interface ContaDosMeusDados {
+  readonly conta: ContaDoCliente
+  readonly geracao: number
+}
+
+/** O que a pessoa corrige sozinha (4.2, A): já normalizado pelo domínio. */
+export interface DadosCorrigidos {
+  readonly nome: string
+  readonly telefone: string
+}
+
+/**
+ * **Meus dados** (4.2), numa porta própria: o mesmo adaptador das contas, mas os cenários das outras rotas não
+ * precisam saber dela.
+ */
+export interface DadosDaConta {
+  /** A conta e a geração, ou `null` quando a conta não existe mais (ou não tem a forma da regra). */
+  paraMeusDados(contaId: string): Promise<ContaDosMeusDados | null>
+  /** Grava o nome e o celular. `false`: o banco recusou, e o log diz o código. */
+  salvarDados(contaId: string, dados: DadosCorrigidos): Promise<boolean>
 }
 
 /** Uma mensagem pronta para sair (`conta/emails.ts`). */
